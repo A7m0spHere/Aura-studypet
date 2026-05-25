@@ -95,6 +95,8 @@ src-tauri/target/release/bundle/msi/
 
 ## 版本发布
 
+更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 建议流程：
 
 1. 日常开发使用 `git commit` 提交。
