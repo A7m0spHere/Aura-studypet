@@ -3,6 +3,7 @@ import type {
   AiSettingsInput,
   AiSettingsMasked,
   AiTestResult,
+  AiModelList,
   AppPreferences,
   AiSummaryTone,
   ChatMessage,
@@ -58,6 +59,7 @@ export const api = {
   getAiSettingsMasked: () => call<AiSettingsMasked>("get_ai_settings_masked"),
   testAiConnection: (settings: AiSettingsInput) =>
     call<AiTestResult>("test_ai_connection", { settings }),
+  listAiModels: (settings: AiSettingsInput) => call<AiModelList>("list_ai_models", { settings }),
   generateAiSummary: (reportId: number, tone?: AiSummaryTone) =>
     call<string>("generate_ai_summary", { report_id: reportId, tone }),
   chatWithAi: (reportId: number, message: string) =>

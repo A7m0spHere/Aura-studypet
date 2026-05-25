@@ -19,26 +19,9 @@ pub struct AiConnectionTest {
     pub chat_ok: bool,
 }
 
-pub const DEFAULT_AI_BASE_URL: &str = "https://new.xinjianya.top/v1";
-pub const BUILTIN_API_KEY_ENV: &str = "STUDYPULSE_BUILTIN_API_KEY";
-pub const DEFAULT_AI_MODEL: &str = "deepseek-ai/deepseek-v4-pro";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const USER_AGENT_VALUE: &str = "StudyPulse/0.2.1";
-
-pub fn default_ai_settings() -> AiSettings {
-    AiSettings {
-        base_url: DEFAULT_AI_BASE_URL.into(),
-        api_key: std::env::var(BUILTIN_API_KEY_ENV).unwrap_or_default(),
-        model: DEFAULT_AI_MODEL.into(),
-    }
-}
-
-pub fn builtin_api_key_configured() -> bool {
-    std::env::var(BUILTIN_API_KEY_ENV)
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiMessage {
@@ -120,7 +103,7 @@ pub async fn test_connection(settings: &AiSettings) -> Result<AiConnectionTest, 
     })
 }
 
-async fn list_models(settings: &AiSettings) -> Result<Vec<String>, String> {
+pub async fn list_models(settings: &AiSettings) -> Result<Vec<String>, String> {
     let endpoint = endpoint(settings, "models");
     let response: ModelsResponse = get_json(&endpoint, &settings.api_key).await?;
     Ok(response.data.into_iter().map(|model| model.id).collect())

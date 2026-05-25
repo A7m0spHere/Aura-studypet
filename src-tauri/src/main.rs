@@ -16,10 +16,7 @@ use std::{
 };
 
 use activity::{start_activity_capture, ActivityHandle};
-use ai::{
-    builtin_api_key_configured, default_ai_settings, AiMessage, AiSettings, DEFAULT_AI_BASE_URL,
-    DEFAULT_AI_MODEL,
-};
+use ai::{AiMessage, AiSettings};
 use chrono::{DateTime, NaiveTime, Utc};
 use collector::sample_foreground_window;
 use db::Database;
@@ -141,6 +138,13 @@ pub struct AiProviderSettingsMasked {
 #[derive(Debug, Clone, Serialize)]
 struct AiTestResult {
     ok: bool,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AiModelList {
+    ok: bool,
+    models: Vec<String>,
     message: String,
 }
 
@@ -295,19 +299,42 @@ async fn test_ai_connection(
         Ok(result) => Ok(AiTestResult {
             ok: true,
             message: match (result.model_count, result.chat_ok) {
-                (Some(count), true) => format!(
-                    "API 可用，检测到 {count} 个模型，当前模型 {} 可正常响应。",
-                    resolved.model
-                ),
-                (None, true) => format!(
-                    "API 可用，当前模型 {} 可正常响应；该服务未返回模型列表。",
-                    resolved.model
-                ),
+                (Some(count), true) => {
+                    format!("API 可用，检测到 {count} 个模型，当前模型 {} 可正常响应。", resolved.model)
+                }
+                (None, true) => {
+                    format!("API 可用，当前模型 {} 可正常响应；该服务未返回模型列表。", resolved.model)
+                }
                 _ => "API 连接异常，请稍后重试。".into(),
             },
         }),
         Err(error) => Ok(AiTestResult {
             ok: false,
+            message: error,
+        }),
+    }
+}
+
+#[tauri::command]
+async fn list_ai_models(
+    settings: AiSettingsInput,
+    state: State<'_, AppState>,
+) -> AppResult<AiModelList> {
+    let settings = hydrate_saved_ai_key_if_needed(settings, &state)?;
+    let resolved = resolve_ai_settings_for_models(&settings)?;
+    match ai::list_models(&resolved).await {
+        Ok(mut models) => {
+            models.sort();
+            models.dedup();
+            Ok(AiModelList {
+                ok: true,
+                message: format!("检测到 {} 个可用模型。", models.len()),
+                models,
+            })
+        }
+        Err(error) => Ok(AiModelList {
+            ok: false,
+            models: Vec::new(),
             message: error,
         }),
     }
@@ -620,12 +647,6 @@ fn mock_ai_summary(report: &ReportContext) -> String {
 fn canonical_ai_settings_input_clean(settings: &AiSettingsInput) -> AppResult<AiSettingsInput> {
     let provider = normalize_ai_provider(settings.provider.as_deref());
     match provider {
-        "builtin" => Ok(AiSettingsInput {
-            provider: Some("builtin".into()),
-            base_url: DEFAULT_AI_BASE_URL.into(),
-            api_key: String::new(),
-            model: DEFAULT_AI_MODEL.into(),
-        }),
         "deepseek" => {
             let model = settings.model.trim();
             if !deepseek_models().contains(&model) {
@@ -664,48 +685,7 @@ fn canonical_ai_settings_input_clean(settings: &AiSettingsInput) -> AppResult<Ai
 
 #[allow(dead_code)]
 fn canonical_ai_settings_input(settings: &AiSettingsInput) -> AppResult<AiSettingsInput> {
-    let provider = normalize_ai_provider(settings.provider.as_deref());
-    match provider {
-        "builtin" => Ok(AiSettingsInput {
-            provider: Some("builtin".into()),
-            base_url: DEFAULT_AI_BASE_URL.into(),
-            api_key: String::new(),
-            model: DEFAULT_AI_MODEL.into(),
-        }),
-        "deepseek" => {
-            let model = settings.model.trim();
-            if !deepseek_models().contains(&model) {
-                return Err("DeepSeek 模型只能选择 deepseek-v4-pro 或 deepseek-v4-flash。".into());
-            }
-            if settings.api_key.trim().is_empty() {
-                return Err("请填写 DeepSeek API Key。".into());
-            }
-            Ok(AiSettingsInput {
-                provider: Some("deepseek".into()),
-                base_url: "https://api.deepseek.com".into(),
-                api_key: settings.api_key.trim().into(),
-                model: model.into(),
-            })
-        }
-        "custom" => {
-            if settings.base_url.trim().is_empty() {
-                return Err("请填写自定义 API Base URL。".into());
-            }
-            if settings.model.trim().is_empty() {
-                return Err("请填写自定义模型名称。".into());
-            }
-            if settings.api_key.trim().is_empty() {
-                return Err("请填写自定义 API Key。".into());
-            }
-            Ok(AiSettingsInput {
-                provider: Some("custom".into()),
-                base_url: settings.base_url.trim().into(),
-                api_key: settings.api_key.trim().into(),
-                model: settings.model.trim().into(),
-            })
-        }
-        _ => Err("未知的 API 供应商。".into()),
-    }
+    canonical_ai_settings_input_clean(settings)
 }
 
 fn hydrate_saved_ai_key_if_needed(
@@ -713,7 +693,7 @@ fn hydrate_saved_ai_key_if_needed(
     state: &State<'_, AppState>,
 ) -> AppResult<AiSettingsInput> {
     let provider = normalize_ai_provider(settings.provider.as_deref());
-    if provider == "builtin" || !settings.api_key.trim().is_empty() {
+    if !settings.api_key.trim().is_empty() {
         return Ok(settings);
     }
 
@@ -744,13 +724,6 @@ fn hydrate_saved_ai_key_if_needed(
 
 fn resolve_ai_settings(settings: &AiSettingsInput) -> AppResult<AiSettings> {
     let canonical = canonical_ai_settings_input_clean(settings)?;
-    if canonical.provider.as_deref() == Some("builtin") {
-        if !builtin_api_key_configured() {
-            return Err("Built-in API key is not configured. Public builds do not include a plaintext key. Set STUDYPULSE_BUILTIN_API_KEY or switch to DeepSeek/custom API.".into());
-        }
-        return Ok(default_ai_settings());
-    }
-
     Ok(AiSettings {
         base_url: canonical.base_url,
         api_key: canonical.api_key,
@@ -758,9 +731,30 @@ fn resolve_ai_settings(settings: &AiSettingsInput) -> AppResult<AiSettings> {
     })
 }
 
+fn resolve_ai_settings_for_models(settings: &AiSettingsInput) -> AppResult<AiSettings> {
+    let provider = normalize_ai_provider(settings.provider.as_deref());
+    let (base_url, api_key) = match provider {
+        "deepseek" => ("https://api.deepseek.com".to_string(), settings.api_key.trim().to_string()),
+        "custom" => {
+            if settings.base_url.trim().is_empty() {
+                return Err("请填写自定义 API Base URL。".into());
+            }
+            (settings.base_url.trim().to_string(), settings.api_key.trim().to_string())
+        }
+        _ => return Err("未知的 API 供应商。".into()),
+    };
+    if api_key.is_empty() {
+        return Err("请先填写 API Key，或保存后使用已保存的 Key 检测。".into());
+    }
+    Ok(AiSettings {
+        base_url,
+        api_key,
+        model: settings.model.trim().to_string(),
+    })
+}
+
 fn normalize_ai_provider(provider: Option<&str>) -> &'static str {
-    match provider.unwrap_or("custom") {
-        "builtin" => "builtin",
+    match provider.unwrap_or("deepseek") {
         "deepseek" => "deepseek",
         "custom" => "custom",
         _ => "unknown",
@@ -1143,6 +1137,7 @@ fn main() {
             save_ai_settings,
             get_ai_settings_masked,
             test_ai_connection,
+            list_ai_models,
             generate_ai_summary,
             chat_with_ai,
             get_recent_reports,

@@ -1,6 +1,5 @@
 import {
   Activity,
-  Brain,
   Clock3,
   Coffee,
   History,
@@ -201,7 +200,7 @@ export default function App() {
       <header className="flex items-center justify-between border-b border-line bg-white/60 px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-lg bg-tomato text-white">
-            <Brain size={20} />
+            <StudyPulseMark />
           </div>
           <div>
             <h1 className="text-xl font-semibold">StudyPulse</h1>
@@ -546,6 +545,24 @@ function HistoryDialog({
         </div>
       </section>
     </div>
+  );
+}
+
+function StudyPulseMark() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true" className="h-6 w-6">
+      <circle cx="16" cy="17" r="11" fill="currentColor" opacity="0.96" />
+      <path d="M12 7.5c1.2-2 3.1-2.8 5.2-2.2" fill="none" stroke="#2f6f5e" strokeWidth="3" strokeLinecap="round" />
+      <path
+        d="M7.5 17.5h5l2.1-4.2 3.3 8.1 2.5-5.2h4.1"
+        fill="none"
+        stroke="#f6f1e9"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M16 11.2v5.5l3.5 2.3" fill="none" stroke="#20302b" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }
 

@@ -3,13 +3,14 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SettingsModal } from "./SettingsModal";
 import type { AppPreferences } from "../lib/types";
+import { SettingsModal } from "./SettingsModal";
 
 const apiMock = vi.hoisted(() => ({
   getAiSettingsMasked: vi.fn(),
   saveAiSettings: vi.fn(),
   testAiConnection: vi.fn(),
+  listAiModels: vi.fn(),
 }));
 
 vi.mock("../lib/api", () => ({
@@ -39,18 +40,8 @@ describe("SettingsModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMock.getAiSettingsMasked.mockResolvedValue({
-      active_provider: "builtin",
+      active_provider: "deepseek",
       providers: [
-        {
-          provider: "builtin",
-          base_url: "https://new.xinjianya.top/v1",
-          model: "deepseek-ai/deepseek-v4-pro",
-          api_key_masked: "******nWl6",
-          configured: true,
-          available_models: [],
-          base_url_editable: false,
-          api_key_required: false,
-        },
         {
           provider: "deepseek",
           base_url: "https://api.deepseek.com",
@@ -76,7 +67,12 @@ describe("SettingsModal", () => {
     apiMock.saveAiSettings.mockResolvedValue(undefined);
     apiMock.testAiConnection.mockResolvedValue({
       ok: true,
-      message: "API 可用，模型 deepseek-ai/deepseek-v4-pro 返回正常。",
+      message: "API 可用，当前模型 deepseek-v4-pro 可正常响应。",
+    });
+    apiMock.listAiModels.mockResolvedValue({
+      ok: true,
+      models: ["demo-model-a", "demo-model-b"],
+      message: "检测到 2 个可用模型。",
     });
   });
 
@@ -84,16 +80,12 @@ describe("SettingsModal", () => {
     cleanup();
   });
 
-  it("keeps builtin preset read-only", async () => {
+  it("removes the builtin public API template", async () => {
     renderModal();
 
-    const baseUrl = await screen.findByDisplayValue("https://new.xinjianya.top/v1");
-    const model = screen.getByDisplayValue("deepseek-ai/deepseek-v4-pro");
-    const key = screen.getByPlaceholderText("******nWl6");
-
-    expect(baseUrl).toBeDisabled();
-    expect(model).toBeDisabled();
-    expect(key).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "DeepSeek" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "自定义 OpenAI 兼容 API" })).toBeInTheDocument();
+    expect(screen.queryByText("内置公益 API")).not.toBeInTheDocument();
   });
 
   it("shows DeepSeek model choices and requires the user key field", async () => {
@@ -123,25 +115,26 @@ describe("SettingsModal", () => {
     fireEvent.click(await screen.findByRole("button", { name: "DeepSeek" }));
     expect(screen.getByPlaceholderText("******1111")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "自定义" }));
+    fireEvent.click(screen.getByRole("button", { name: "自定义 OpenAI 兼容 API" }));
     expect(screen.getByPlaceholderText("******2222")).toBeInTheDocument();
     expect(screen.getByDisplayValue("https://api.example.com/v1")).not.toBeDisabled();
+  });
+
+  it("detects custom models and allows selecting one", async () => {
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "自定义 OpenAI 兼容 API" }));
+    fireEvent.click(screen.getByRole("button", { name: "检测可用模型" }));
+
+    await waitFor(() => expect(apiMock.listAiModels).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("option", { name: "demo-model-a" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "demo-model-b" })).toBeInTheDocument();
   });
 
   it("keeps custom fields blank when no custom values are configured", async () => {
     apiMock.getAiSettingsMasked.mockResolvedValueOnce({
       active_provider: "custom",
       providers: [
-        {
-          provider: "builtin",
-          base_url: "https://new.xinjianya.top/v1",
-          model: "deepseek-ai/deepseek-v4-pro",
-          api_key_masked: "******nWl6",
-          configured: true,
-          available_models: [],
-          base_url_editable: false,
-          api_key_required: false,
-        },
         {
           provider: "deepseek",
           base_url: "https://api.deepseek.com",
@@ -167,7 +160,7 @@ describe("SettingsModal", () => {
 
     renderModal();
 
-    expect(await screen.findByPlaceholderText("请输入 OpenAI 兼容 Base URL")).not.toBeDisabled();
-    expect(screen.getByPlaceholderText("请输入模型名称")).not.toBeDisabled();
+    expect(await screen.findByPlaceholderText("例如 https://api.example.com/v1")).not.toBeDisabled();
+    expect(screen.getByPlaceholderText("可先检测模型，也可以手动输入")).not.toBeDisabled();
   });
 });

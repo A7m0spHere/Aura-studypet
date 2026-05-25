@@ -65,19 +65,19 @@ export interface AppPreferences {
 }
 
 export interface AiSettingsInput {
-  provider: "builtin" | "deepseek" | "custom";
+  provider: "deepseek" | "custom";
   base_url: string;
   api_key: string;
   model: string;
 }
 
 export interface AiSettingsMasked {
-  active_provider: "builtin" | "deepseek" | "custom";
+  active_provider: "deepseek" | "custom";
   providers: AiProviderSettingsMasked[];
 }
 
 export interface AiProviderSettingsMasked {
-  provider: "builtin" | "deepseek" | "custom";
+  provider: "deepseek" | "custom";
   base_url: string;
   model: string;
   api_key_masked: string;
@@ -89,6 +89,12 @@ export interface AiProviderSettingsMasked {
 
 export interface AiTestResult {
   ok: boolean;
+  message: string;
+}
+
+export interface AiModelList {
+  ok: boolean;
+  models: string[];
   message: string;
 }
 

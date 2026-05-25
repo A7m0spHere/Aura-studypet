@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, XCircle, X } from "lucide-react";
+import { CheckCircle2, Loader2, Search, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type {
@@ -22,12 +22,6 @@ type AiForms = Record<AiProvider, AiSettingsInput>;
 const DEEPSEEK_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"];
 
 const DEFAULT_FORMS: AiForms = {
-  builtin: {
-    provider: "builtin",
-    base_url: "https://new.xinjianya.top/v1",
-    api_key: "",
-    model: "deepseek-ai/deepseek-v4-pro",
-  },
   deepseek: {
     provider: "deepseek",
     base_url: "https://api.deepseek.com",
@@ -49,23 +43,28 @@ export function SettingsModal({
   preferences,
   onSavePreferences,
 }: SettingsModalProps) {
-  const [activeProvider, setActiveProvider] = useState<AiProvider>("builtin");
+  const [activeProvider, setActiveProvider] = useState<AiProvider>("deepseek");
   const [forms, setForms] = useState<AiForms>(cloneDefaultForms());
   const [masked, setMasked] = useState<AiSettingsMasked | null>(null);
   const [message, setMessage] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testing, setTesting] = useState(false);
+  const [detectingModels, setDetectingModels] = useState(false);
+  const [customModels, setCustomModels] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setMessage("");
     setTestMessage("");
+    setCustomModels([]);
     api
       .getAiSettingsMasked()
       .then((value) => {
         setMasked(value);
         setActiveProvider(value.active_provider);
         setForms(formsFromMasked(value));
+        const custom = value.providers.find((item) => item.provider === "custom");
+        setCustomModels(custom?.available_models ?? []);
       })
       .catch((error) => setMessage(String(error)));
   }, [open]);
@@ -93,7 +92,7 @@ export function SettingsModal({
     setTestMessage("");
     try {
       await api.saveAiSettings(activeSettings);
-      setMessage("已保存。每个模板的 API Key 会单独保存在本机配置中，界面不会显示明文。");
+      setMessage("已保存。DeepSeek 和自定义 API 的 Key 会分别保存在本机配置中，界面不会显示明文。");
       setForms((current) => ({
         ...current,
         [activeProvider]: {
@@ -123,6 +122,28 @@ export function SettingsModal({
     }
   }
 
+  async function detectCustomModels() {
+    setDetectingModels(true);
+    setTestMessage("");
+    try {
+      const result = await api.listAiModels(forms.custom);
+      setTestMessage(result.message);
+      if (result.ok) {
+        setCustomModels(result.models);
+        if (!forms.custom.model.trim() && result.models.length > 0) {
+          setForms((current) => ({
+            ...current,
+            custom: { ...current.custom, model: result.models[0] },
+          }));
+        }
+      }
+    } catch (error) {
+      setTestMessage(String(error));
+    } finally {
+      setDetectingModels(false);
+    }
+  }
+
   async function toggleActivityCapture() {
     await onSavePreferences({
       ...preferences,
@@ -135,10 +156,9 @@ export function SettingsModal({
     );
   }
 
-  const builtin = activeProvider === "builtin";
   const deepseek = activeProvider === "deepseek";
   const custom = activeProvider === "custom";
-  const apiKeyPlaceholder = apiKeyPlaceholderFor(activeMasked, builtin);
+  const apiKeyPlaceholder = apiKeyPlaceholderFor(activeMasked);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
@@ -159,7 +179,7 @@ export function SettingsModal({
               <div>
                 <p className="text-sm font-semibold text-ink">键鼠活跃度统计</p>
                 <p className="mt-1 text-sm leading-6 text-ink/60">
-                  关闭后不会启动键盘 hook 和鼠标轮询，可用于排查鼠标卡顿；学习会话、窗口采集和日报仍可用。
+                  关闭后不启动键盘 hook 和鼠标轮询，可用于排查鼠标卡顿；学习会话、窗口采集和日报仍可使用。
                 </p>
               </div>
               <button
@@ -173,13 +193,7 @@ export function SettingsModal({
 
           <div className="rounded-md border border-line bg-white/70 p-3">
             <p className="mb-2 text-sm font-semibold text-ink">AI 供应商</p>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <button
-                className={builtin ? "primary-button" : "secondary-button"}
-                onClick={() => setActiveProvider("builtin")}
-              >
-                内置公益 API
-              </button>
+            <div className="grid gap-2 sm:grid-cols-2">
               <button
                 className={deepseek ? "primary-button" : "secondary-button"}
                 onClick={() => setActiveProvider("deepseek")}
@@ -190,12 +204,11 @@ export function SettingsModal({
                 className={custom ? "primary-button" : "secondary-button"}
                 onClick={() => setActiveProvider("custom")}
               >
-                自定义
+                自定义 OpenAI 兼容 API
               </button>
             </div>
             <p className="mt-2 text-xs leading-5 text-ink/55">
-              每个模板的 API Key 单独保存。内置公益 API 为只读预设，但连接不稳定，建议用户自己接入其他 API。
-              DeepSeek 固定 Base URL；自定义模式需要自行填写 OpenAI 兼容配置。
+              DeepSeek 固定 Base URL，模型从预设中选择，Key 由用户填写。自定义模式不预设任何地址或模型，可检测 /models 后再选择。
             </p>
           </div>
 
@@ -205,7 +218,7 @@ export function SettingsModal({
               value={activeSettings.base_url}
               disabled={!custom}
               onChange={(event) => updateActiveForm({ base_url: event.target.value })}
-              placeholder={custom ? "请输入 OpenAI 兼容 Base URL" : activeSettings.base_url}
+              placeholder={custom ? "例如 https://api.example.com/v1" : activeSettings.base_url}
             />
           </label>
 
@@ -223,12 +236,26 @@ export function SettingsModal({
                 ))}
               </select>
             ) : (
-              <input
-                value={activeSettings.model}
-                disabled={builtin}
-                onChange={(event) => updateActiveForm({ model: event.target.value })}
-                placeholder={custom ? "请输入模型名称" : activeSettings.model}
-              />
+              <div className="space-y-2">
+                {customModels.length > 0 ? (
+                  <select
+                    value={customModels.includes(activeSettings.model) ? activeSettings.model : ""}
+                    onChange={(event) => updateActiveForm({ model: event.target.value })}
+                  >
+                    <option value="">手动输入模型名</option>
+                    {customModels.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <input
+                  value={activeSettings.model}
+                  onChange={(event) => updateActiveForm({ model: event.target.value })}
+                  placeholder="可先检测模型，也可以手动输入"
+                />
+              </div>
             )}
           </label>
 
@@ -236,7 +263,6 @@ export function SettingsModal({
             <span>API Key</span>
             <input
               value={activeSettings.api_key}
-              disabled={builtin}
               onChange={(event) => updateActiveForm({ api_key: event.target.value })}
               type="password"
               placeholder={apiKeyPlaceholder}
@@ -245,8 +271,8 @@ export function SettingsModal({
 
           <div className="rounded-md border border-line bg-white/70 p-3 text-sm leading-6 text-ink/70">
             <p>
-              AI 总结只会在你主动点击生成总结或继续聊天时，把本地日报摘要发送到当前选择的 API。
-              API Key 不会以明文返回前端，也不会写入日志。
+              AI 总结只会在你主动生成总结或继续聊天时，将本地日报摘要发送到当前选择的 API。API Key
+              不会以明文返回前端，也不会写入日志。
             </p>
             <button className="mt-2 text-sm font-semibold text-moss" onClick={onShowPrivacy}>
               查看完整隐私说明
@@ -256,7 +282,11 @@ export function SettingsModal({
           {message ? <p className="text-sm text-moss">{message}</p> : null}
           {testMessage ? (
             <p className="flex items-center gap-2 text-sm text-ink/75">
-              {testMessage.includes("可用") ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+              {testMessage.includes("可用") || testMessage.includes("检测到") || testMessage.includes("available") ? (
+                <CheckCircle2 size={16} />
+              ) : (
+                <XCircle size={16} />
+              )}
               {testMessage}
             </p>
           ) : null}
@@ -265,6 +295,12 @@ export function SettingsModal({
             <button className="secondary-button" onClick={onClose}>
               先不设置
             </button>
+            {custom ? (
+              <button className="secondary-button" onClick={detectCustomModels} disabled={detectingModels}>
+                {detectingModels ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
+                检测可用模型
+              </button>
+            ) : null}
             <button className="secondary-button" onClick={testConnection} disabled={testing}>
               {testing ? <Loader2 className="animate-spin" size={16} /> : null}
               测试 API
@@ -294,14 +330,12 @@ function formsFromMasked(masked: AiSettingsMasked): AiForms {
 
 function cloneDefaultForms(): AiForms {
   return {
-    builtin: { ...DEFAULT_FORMS.builtin },
     deepseek: { ...DEFAULT_FORMS.deepseek },
     custom: { ...DEFAULT_FORMS.custom },
   };
 }
 
-function apiKeyPlaceholderFor(provider: AiProviderSettingsMasked | undefined, builtin: boolean) {
-  if (builtin) return provider?.api_key_masked || "内置 Key";
+function apiKeyPlaceholderFor(provider: AiProviderSettingsMasked | undefined) {
   if (provider?.configured) return provider.api_key_masked;
   return "sk-...";
 }

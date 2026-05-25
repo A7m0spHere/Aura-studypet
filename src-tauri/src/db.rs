@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{
-    ai::{builtin_api_key_configured, default_ai_settings, AiSettings},
+    ai::AiSettings,
     collector::WindowSample,
     ActivityPoint, AiProviderSettingsMasked, AiSettingsInput, AiSettingsMasked, AppPreferences,
     AppUsage, ChatMessage, DailyReport, ReportContext, Session,
@@ -175,13 +175,10 @@ impl Database {
         self.conn
             .execute_batch("ALTER TABLE ai_settings RENAME TO ai_settings_legacy;")?;
         self.create_provider_ai_settings_table()?;
-        let active_provider = if legacy_provider == "builtin"
-            || legacy_provider == "deepseek"
-            || legacy_provider == "custom"
-        {
+        let active_provider = if legacy_provider == "deepseek" || legacy_provider == "custom" {
             legacy_provider
         } else {
-            "custom".into()
+            "deepseek".into()
         };
         if let Some((base_url, api_key, model)) = legacy {
             let provider = if active_provider == "deepseek" || active_provider == "custom" {
@@ -650,23 +647,21 @@ impl Database {
     }
 
     pub fn save_ai_settings(&self, settings: &AiSettingsInput) -> rusqlite::Result<()> {
-        let provider = settings.provider.as_deref().unwrap_or("custom");
-        if provider != "builtin" {
-            self.conn.execute(
-                "INSERT INTO ai_settings (provider, base_url, api_key, model)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(provider) DO UPDATE
-                 SET base_url = excluded.base_url,
-                     api_key = excluded.api_key,
-                     model = excluded.model",
-                params![
-                    provider,
-                    settings.base_url.trim(),
-                    settings.api_key.trim(),
-                    settings.model.trim()
-                ],
-            )?;
-        }
+        let provider = normalize_saved_provider(settings.provider.as_deref());
+        self.conn.execute(
+            "INSERT INTO ai_settings (provider, base_url, api_key, model)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(provider) DO UPDATE
+             SET base_url = excluded.base_url,
+                 api_key = excluded.api_key,
+                 model = excluded.model",
+            params![
+                provider,
+                settings.base_url.trim(),
+                settings.api_key.trim(),
+                settings.model.trim()
+            ],
+        )?;
         self.set_preference_value("active_ai_provider", provider)?;
         Ok(())
     }
@@ -675,7 +670,6 @@ impl Database {
         Ok(AiSettingsMasked {
             active_provider: self.active_ai_provider()?,
             providers: vec![
-                self.masked_ai_provider("builtin")?,
                 self.masked_ai_provider("deepseek")?,
                 self.masked_ai_provider("custom")?,
             ],
@@ -690,9 +684,6 @@ impl Database {
         &self,
         provider: &str,
     ) -> rusqlite::Result<Option<AiSettings>> {
-        if provider == "builtin" {
-            return Ok(Some(default_ai_settings()));
-        }
         self.conn
             .query_row(
                 "SELECT base_url, api_key, model FROM ai_settings WHERE provider = ?1",
@@ -711,25 +702,11 @@ impl Database {
     fn active_ai_provider(&self) -> rusqlite::Result<String> {
         Ok(self
             .preference_value("active_ai_provider")?
-            .filter(|provider| provider == "builtin" || provider == "deepseek" || provider == "custom")
-            .unwrap_or_else(|| "builtin".into()))
+            .filter(|provider| provider == "deepseek" || provider == "custom")
+            .unwrap_or_else(|| "deepseek".into()))
     }
 
     fn masked_ai_provider(&self, provider: &str) -> rusqlite::Result<AiProviderSettingsMasked> {
-        if provider == "builtin" {
-            let defaults = default_ai_settings();
-            return Ok(AiProviderSettingsMasked {
-                provider: "builtin".into(),
-                base_url: defaults.base_url,
-                model: defaults.model,
-                api_key_masked: mask_api_key(&defaults.api_key),
-                configured: builtin_api_key_configured(),
-                available_models: Vec::new(),
-                base_url_editable: false,
-                api_key_required: false,
-            });
-        }
-
         let saved = self.get_ai_settings_for_provider(provider)?;
         let (default_base_url, default_model, available_models, base_url_editable) =
             if provider == "deepseek" {
@@ -930,6 +907,13 @@ fn non_empty_or_none(value: &str) -> Option<String> {
     }
 }
 
+fn normalize_saved_provider(provider: Option<&str>) -> &'static str {
+    match provider {
+        Some("custom") => "custom",
+        _ => "deepseek",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1015,28 +999,24 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_default_ai_settings_when_not_saved() {
+    fn defaults_to_deepseek_provider_without_saved_key() {
         let database = Database::memory().expect("database should initialize");
 
-        let settings = database
-            .get_ai_settings()
-            .expect("settings query should work")
-            .expect("default settings should exist");
         let masked = database
             .get_ai_settings_masked()
             .expect("masked settings should load");
 
-        assert_eq!(settings.base_url, "https://new.xinjianya.top/v1");
-        assert_eq!(settings.model, "deepseek-ai/deepseek-v4-pro");
-        let builtin = masked_provider(&masked, "builtin");
-        assert_eq!(masked.active_provider, "builtin");
-        assert!(!builtin.configured);
-        assert_eq!(builtin.model, "deepseek-ai/deepseek-v4-pro");
-        assert_eq!(builtin.api_key_masked, "");
+        assert_eq!(masked.active_provider, "deepseek");
+        assert_eq!(masked.providers.len(), 2);
+        assert!(masked.providers.iter().all(|item| item.provider != "builtin"));
+        let deepseek = masked_provider(&masked, "deepseek");
+        assert_eq!(deepseek.base_url, "https://api.deepseek.com");
+        assert_eq!(deepseek.model, "deepseek-v4-pro");
+        assert!(!deepseek.configured);
     }
 
     #[test]
-    fn builtin_provider_does_not_store_or_return_default_key_from_database_row() {
+    fn builtin_provider_is_migrated_to_deepseek() {
         let database = Database::memory().expect("database should initialize");
         database
             .save_ai_settings(&AiSettingsInput {
@@ -1047,20 +1027,12 @@ mod tests {
             })
             .expect("settings should save");
 
-        let settings = database
-            .get_ai_settings()
-            .expect("settings query should work")
-            .expect("settings should exist");
         let masked = database
             .get_ai_settings_masked()
             .expect("masked settings should load");
 
-        assert_eq!(settings.base_url, "https://new.xinjianya.top/v1");
-        assert_eq!(settings.model, "deepseek-ai/deepseek-v4-pro");
-        let builtin = masked_provider(&masked, "builtin");
-        assert_eq!(masked.active_provider, "builtin");
-        assert!(!builtin.configured);
-        assert_eq!(builtin.api_key_masked, "");
+        assert_eq!(masked.active_provider, "deepseek");
+        assert!(masked.providers.iter().all(|item| item.provider != "builtin"));
     }
 
     #[test]
