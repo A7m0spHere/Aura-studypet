@@ -54,7 +54,7 @@ impl ActivityHandle {
         self.counters.pending_counts()
     }
 
-    pub fn stop(self) {
+    pub fn stop(self, session_id: i64, db: &Arc<Mutex<Database>>) {
         self.stop.store(true, Ordering::SeqCst);
         #[cfg(windows)]
         wake_hook_thread();
@@ -63,6 +63,7 @@ impl ActivityHandle {
                 eprintln!("[Aura activity] activity thread panicked while stopping");
             }
         }
+        flush_pending_counts(session_id, db, &self.counters);
     }
 }
 

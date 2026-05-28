@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{
@@ -542,7 +542,14 @@ impl Database {
             .conn
             .prepare("SELECT started_at, ended_at, status FROM sessions")?;
         let mut total = 0;
-        let today = now.date_naive();
+        let local_now = now.with_timezone(&Local);
+        let date = local_now.date_naive();
+        let day_start = Local
+            .with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
+            .single()
+            .unwrap_or(local_now)
+            .with_timezone(&Utc);
+        let day_end = day_start + Duration::days(1);
 
         let rows = statement.query_map([], |row| {
             Ok((
@@ -558,9 +565,6 @@ impl Database {
                 continue;
             };
             let started = started.with_timezone(&Utc);
-            if started.date_naive() != today {
-                continue;
-            }
 
             let ended = match ended_at {
                 Some(value) => DateTime::parse_from_rfc3339(&value)
@@ -569,7 +573,9 @@ impl Database {
                 None if status == "studying" => now,
                 None => started,
             };
-            total += (ended - started).num_seconds().max(0);
+            let overlap_start = started.max(day_start);
+            let overlap_end = ended.min(now).min(day_end);
+            total += (overlap_end - overlap_start).num_seconds().max(0);
         }
 
         Ok(total)
@@ -681,24 +687,43 @@ impl Database {
                  api_key = excluded.api_key,
                  model = excluded.model",
             params![
-                provider,
+                &provider,
                 settings.base_url.trim(),
                 settings.api_key.trim(),
                 settings.model.trim()
             ],
         )?;
-        self.set_preference_value("active_ai_provider", provider)?;
+        self.set_preference_value("active_ai_provider", &provider)?;
         Ok(())
     }
 
     pub fn get_ai_settings_masked(&self) -> rusqlite::Result<AiSettingsMasked> {
+        let mut providers = vec![self.masked_ai_provider("deepseek")?];
+        let mut custom_providers = self.custom_ai_provider_ids()?;
+        if custom_providers.is_empty() {
+            custom_providers.push("custom".into());
+        }
+        for provider in custom_providers {
+            providers.push(self.masked_ai_provider(&provider)?);
+        }
         Ok(AiSettingsMasked {
             active_provider: self.active_ai_provider()?,
-            providers: vec![
-                self.masked_ai_provider("deepseek")?,
-                self.masked_ai_provider("custom")?,
-            ],
+            providers,
         })
+    }
+
+    pub fn delete_ai_settings_provider(&self, provider: &str) -> rusqlite::Result<()> {
+        if provider == "deepseek" || !is_custom_provider(provider) {
+            return Ok(());
+        }
+        self.conn.execute(
+            "DELETE FROM ai_settings WHERE provider = ?1",
+            params![provider],
+        )?;
+        if self.active_ai_provider()? == provider {
+            self.set_preference_value("active_ai_provider", "deepseek")?;
+        }
+        Ok(())
     }
 
     pub fn get_ai_settings(&self) -> rusqlite::Result<Option<AiSettings>> {
@@ -727,8 +752,20 @@ impl Database {
     fn active_ai_provider(&self) -> rusqlite::Result<String> {
         Ok(self
             .preference_value("active_ai_provider")?
-            .filter(|provider| provider == "deepseek" || provider == "custom")
+            .filter(|provider| provider == "deepseek" || is_custom_provider(provider))
             .unwrap_or_else(|| "deepseek".into()))
+    }
+
+    fn custom_ai_provider_ids(&self) -> rusqlite::Result<Vec<String>> {
+        let mut statement = self.conn.prepare(
+            "SELECT provider FROM ai_settings
+             WHERE provider = 'custom' OR provider LIKE 'custom:%'
+             ORDER BY provider ASC",
+        )?;
+        let providers = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(providers)
     }
 
     fn masked_ai_provider(&self, provider: &str) -> rusqlite::Result<AiProviderSettingsMasked> {
@@ -818,7 +855,7 @@ impl Database {
         emotion: &str,
     ) -> rusqlite::Result<AuraChatMessage> {
         let created_at = Utc::now().to_rfc3339();
-        let emotion = normalize_emotion_db(emotion);
+        let emotion = normalize_emotion(emotion);
         self.conn.execute(
             "INSERT INTO aura_chat_messages (role, content, emotion, created_at)
              VALUES (?1, ?2, ?3, ?4)",
@@ -934,7 +971,7 @@ impl Database {
         let pet_name = self
             .preference_value("pet_name")?
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "Aura".into());
+            .unwrap_or_default();
         let pet_persona_prompt = self
             .preference_value("pet_persona_prompt")?
             .filter(|value| !value.trim().is_empty())
@@ -959,11 +996,21 @@ impl Database {
         let active_pet_id = self
             .preference_value("active_pet_id")?
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "default-aura".into());
+            .filter(|value| value != "default-aura")
+            .unwrap_or_default();
         let first_pet_enable_seen = self
             .preference_value("first_pet_enable_seen")?
             .map(|value| value == "true")
             .unwrap_or(false);
+        let pet_always_on_top = self
+            .preference_value("pet_always_on_top")?
+            .map(|value| value == "true")
+            .unwrap_or(true);
+        let pet_scale = self
+            .preference_value("pet_scale")?
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(1.0)
+            .clamp(0.8, 1.4);
 
         Ok(PetPreferences {
             pet_enabled,
@@ -975,6 +1022,8 @@ impl Database {
             app_switch_nudge_enabled,
             active_pet_id,
             first_pet_enable_seen,
+            pet_always_on_top,
+            pet_scale,
         })
     }
 
@@ -1002,6 +1051,14 @@ impl Database {
         self.set_preference_value(
             "first_pet_enable_seen",
             bool_value(preferences.first_pet_enable_seen),
+        )?;
+        self.set_preference_value(
+            "pet_always_on_top",
+            bool_value(preferences.pet_always_on_top),
+        )?;
+        self.set_preference_value(
+            "pet_scale",
+            &preferences.pet_scale.clamp(0.8, 1.4).to_string(),
         )?;
         Ok(())
     }
@@ -1044,13 +1101,15 @@ fn bool_value(value: bool) -> &'static str {
     }
 }
 
-fn normalize_emotion_db(value: &str) -> &'static str {
+pub fn normalize_emotion(value: &str) -> &'static str {
     match value.trim() {
         "studying" => "studying",
         "thinking" => "thinking",
         "happy" => "happy",
         "nudge" => "nudge",
         "ended" => "ended",
+        "interact" => "interact",
+        "chat" => "chat",
         _ => "idle",
     }
 }
@@ -1085,11 +1144,16 @@ fn non_empty_or_none(value: &str) -> Option<String> {
     }
 }
 
-fn normalize_saved_provider(provider: Option<&str>) -> &'static str {
-    match provider {
-        Some("custom") => "custom",
-        _ => "deepseek",
+fn normalize_saved_provider(provider: Option<&str>) -> String {
+    match provider.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("deepseek") => "deepseek".into(),
+        Some(value) if is_custom_provider(value) => value.into(),
+        _ => "deepseek".into(),
     }
+}
+
+pub fn is_custom_provider(provider: &str) -> bool {
+    provider == "custom" || provider.starts_with("custom:")
 }
 
 #[cfg(test)]
@@ -1447,6 +1511,30 @@ mod tests {
                 .today_study_seconds(now)
                 .expect("today seconds should load"),
             180
+        );
+    }
+
+    #[test]
+    fn sums_today_study_seconds_from_local_midnight() {
+        let database = Database::memory().expect("database should initialize");
+        let local_midnight = Local
+            .with_ymd_and_hms(2026, 5, 22, 0, 0, 0)
+            .single()
+            .expect("local midnight should exist")
+            .with_timezone(&Utc);
+        database
+            .add_session_with_times(
+                &(local_midnight - Duration::hours(1)).to_rfc3339(),
+                Some(&(local_midnight + Duration::minutes(30)).to_rfc3339()),
+                "ended",
+            )
+            .expect("cross-midnight session should save");
+
+        assert_eq!(
+            database
+                .today_study_seconds(local_midnight + Duration::hours(1))
+                .expect("today seconds should load"),
+            30 * 60
         );
     }
 

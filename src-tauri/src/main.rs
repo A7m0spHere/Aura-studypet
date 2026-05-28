@@ -1,912 +1,47 @@
 mod activity;
 mod ai;
 mod collector;
+mod commands;
 mod db;
 mod pomodoro;
+mod types;
 
 use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, MutexGuard,
     },
     thread,
-    thread::JoinHandle,
     time::Duration,
 };
 
-use activity::{start_activity_capture, ActivityHandle};
+use activity::start_activity_capture;
 use ai::{AiMessage, AiSettings};
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Local, TimeZone, Timelike, Utc};
 use collector::sample_foreground_window;
 use db::Database;
 use pomodoro::{PomodoroMachine, PomodoroState, TickResult};
-use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+use tauri::{LogicalSize, Manager, State};
 
-type AppResult<T> = Result<T, String>;
-const LEGACY_IDENTIFIER: &str = "com.studypulse.app";
-const AURA_DB_FILE: &str = "aura.sqlite3";
-const LEGACY_DB_FILE: &str = "studypulse.sqlite3";
-const PET_ATLAS_COLUMNS: u32 = 8;
-const PET_ATLAS_ROWS: u32 = 9;
-const PET_ATLAS_FRAME_WIDTH: u32 = 192;
-const PET_ATLAS_FRAME_HEIGHT: u32 = 208;
-const PET_ATLAS_MIN_ALPHA_PIXELS: usize = 16;
+pub(crate) use types::*;
 
-struct AppState {
-    db: Arc<Mutex<Database>>,
-    data_dir: PathBuf,
-    active_session_id: Mutex<Option<i64>>,
-    pomodoro: Arc<Mutex<PomodoroMachine>>,
-    sampler: Mutex<Option<SamplerHandle>>,
-    activity: Mutex<Option<ActivityHandle>>,
-}
+use commands as cmd;
 
-struct SamplerHandle {
-    stop: Arc<AtomicBool>,
-    handle: JoinHandle<()>,
-}
+/* -------------------------------------------------------------------------- */
+/*  helper functions                                                          */
+/* -------------------------------------------------------------------------- */
 
-#[derive(Debug, Clone, Serialize)]
-pub struct Session {
-    pub id: i64,
-    pub started_at: String,
-    pub ended_at: Option<String>,
-    pub status: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppUsage {
-    pub app_name: String,
-    pub exe_path: Option<String>,
-    pub seconds: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActivityPoint {
-    pub label: String,
-    pub keyboard: i64,
-    pub mouse: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct DashboardState {
-    session_status: String,
-    today_study_seconds: i64,
-    current_session_seconds: i64,
-    current_app: String,
-    current_window_title: String,
-    keyboard_count: i64,
-    mouse_count: i64,
-    focus_score: i64,
-    app_usage: Vec<AppUsage>,
-    activity: Vec<ActivityPoint>,
-    pomodoro: PomodoroState,
-    active_report_id: Option<i64>,
-    ai_summary: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct DailyReport {
-    id: i64,
-    session_id: i64,
-    started_at: String,
-    ended_at: String,
-    total_seconds: i64,
-    focus_score: i64,
-    app_usage: Vec<AppUsage>,
-    activity: Vec<ActivityPoint>,
-    pomodoro_completed: i64,
-    ai_summary: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AppPreferences {
-    privacy_notice_accepted: bool,
-    default_pomodoro_minutes: i64,
-    ai_summary_tone: String,
-    activity_capture_enabled: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct AppPreferencesInput {
-    privacy_notice_accepted: bool,
-    default_pomodoro_minutes: i64,
-    ai_summary_tone: String,
-    activity_capture_enabled: bool,
-}
-
-pub const DEFAULT_PET_PERSONA_PROMPT: &str = "你是 Aura，一个轻量桌面 AI 伙伴。你会陪伴用户学习、工作和复盘。你的语气温和、简短、带一点轻微吐槽，但不能羞辱用户。你只能基于提供的行为数据回应，不要编造。如果用户表现不错，要具体夸奖。如果用户分心，要提醒但不要攻击。每次回复尽量控制在 80 字以内。";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PetPreferences {
-    pub pet_enabled: bool,
-    pub pet_name: String,
-    pub pet_persona_prompt: String,
-    pub pet_bubble_enabled: bool,
-    pub proactive_ai_enabled: bool,
-    pub idle_nudge_minutes: i64,
-    pub app_switch_nudge_enabled: bool,
-    pub active_pet_id: String,
-    pub first_pet_enable_seen: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct PetPreferencesInput {
-    pet_enabled: bool,
-    pet_name: String,
-    pet_persona_prompt: String,
-    pet_bubble_enabled: bool,
-    proactive_ai_enabled: bool,
-    idle_nudge_minutes: i64,
-    app_switch_nudge_enabled: bool,
-    active_pet_id: String,
-    first_pet_enable_seen: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PetProfile {
-    pub id: String,
-    pub display_name: String,
-    pub description: String,
-    pub spritesheet_path: String,
-    pub sprites: HashMap<String, String>,
-    pub atlas: Option<PetAtlasMetadata>,
-    pub persona: Option<String>,
-    pub sprite_scale: f64,
-    pub theme_color: Option<String>,
-    pub default_emotion: String,
-    pub bubble_lines: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PetAtlasMetadata {
-    pub columns: u32,
-    pub row_count: u32,
-    pub frame_width: u32,
-    pub frame_height: u32,
-    pub rows: Vec<Vec<usize>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PetManifest {
-    id: String,
-    display_name: String,
-    description: String,
-    spritesheet_path: String,
-    #[serde(default)]
-    sprites: HashMap<String, String>,
-    persona: Option<String>,
-    #[serde(default = "default_sprite_scale")]
-    sprite_scale: f64,
-    theme_color: Option<String>,
-    default_emotion: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BubbleLinesManifest {
-    name: Option<String>,
-    personality: Option<String>,
-    bubble_style: Option<String>,
-    lines: Option<BubbleLines>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ProactivePetNudge {
-    message: String,
-    emotion: String,
-    event_type: String,
-    created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AuraReply {
-    message: String,
-    emotion: String,
-    created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AuraChatMessage {
-    id: i64,
-    role: String,
-    content: String,
-    emotion: String,
-    created_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum BubbleLines {
-    Flat(Vec<String>),
-    Grouped(HashMap<String, Vec<String>>),
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AiSettingsInput {
-    #[serde(default)]
-    pub provider: Option<String>,
-    pub base_url: String,
-    pub api_key: String,
-    pub model: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AiSettingsMasked {
-    pub active_provider: String,
-    pub providers: Vec<AiProviderSettingsMasked>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AiProviderSettingsMasked {
-    pub provider: String,
-    pub base_url: String,
-    pub model: String,
-    pub api_key_masked: String,
-    pub configured: bool,
-    pub available_models: Vec<String>,
-    pub base_url_editable: bool,
-    pub api_key_required: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AiTestResult {
-    ok: bool,
-    message: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AiModelList {
-    ok: bool,
-    models: Vec<String>,
-    message: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ChatMessage {
-    id: i64,
-    report_id: i64,
-    role: String,
-    content: String,
-    created_at: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReportContext {
-    id: i64,
-    session_id: i64,
-    started_at: String,
-    ended_at: String,
-    total_seconds: i64,
-    focus_score: i64,
-    app_usage_json: String,
-    activity_json: String,
-    pomodoro_completed: i64,
-    ai_summary: Option<String>,
-}
-
-#[tauri::command]
-fn start_session(state: State<AppState>) -> AppResult<Session> {
-    if let Some(session_id) = *active_session(&state)? {
-        return db(&state)?.get_session(session_id).map_err(to_string);
-    }
-
-    db(&state)?
-        .close_stale_studying_sessions()
-        .map_err(to_string)?;
-
-    let session = db(&state)?.start_session().map_err(to_string)?;
-    *active_session(&state)? = Some(session.id);
-    start_sampler_if_needed(&state, session.id)?;
-    start_activity_if_needed(&state, session.id)?;
-    Ok(session)
-}
-
-#[tauri::command]
-fn stop_session(state: State<AppState>) -> AppResult<DailyReport> {
-    let session_id = {
-        let mut active = active_session(&state)?;
-        let session_id = if let Some(session_id) = *active {
-            session_id
-        } else {
-            return Err("no active study session".to_string());
-        };
-        *active = None;
-        session_id
-    };
-
-    stop_sampler(&state);
-    stop_activity(&state);
-    let session = db(&state)?.stop_session(session_id).map_err(to_string)?;
-    db(&state)?
-        .aggregate_app_usage(session_id)
-        .map_err(to_string)?;
-    let app_usage = db(&state)?
-        .app_usage_for_session(session_id)
-        .map_err(to_string)?;
-    let pomodoro_completed = pomodoro_snapshot(&state).completed_count;
-    let total_seconds = session_total_seconds(&session);
-    let focus_score = focus_score(total_seconds, app_usage.len(), pomodoro_completed);
-    let activity = db(&state)?
-        .activity_points_for_session(session_id)
-        .map_err(to_string)?;
-    let app_usage_json = serde_json::to_string(&app_usage).map_err(to_string)?;
-    let activity_json = serde_json::to_string(&activity).map_err(to_string)?;
-    let report_id = db(&state)?
-        .create_daily_report(
-            &session,
-            total_seconds,
-            focus_score,
-            &app_usage_json,
-            &activity_json,
-            pomodoro_completed,
-            None,
-        )
-        .map_err(to_string)?;
-
-    Ok(report_for_session(
-        report_id,
-        session,
-        total_seconds,
-        focus_score,
-        app_usage,
-        activity,
-        pomodoro_completed,
-        None,
-    ))
-}
-
-#[tauri::command]
-fn get_current_status(state: State<AppState>) -> DashboardState {
-    dashboard_state(&state).unwrap_or_else(|error| {
-        eprintln!("[Aura dashboard] failed to load dashboard: {error}");
-        empty_dashboard(pomodoro_snapshot(&state))
-    })
-}
-
-#[tauri::command]
-fn get_today_dashboard(state: State<AppState>) -> DashboardState {
-    get_current_status(state)
-}
-
-#[tauri::command]
-fn start_pomodoro(minutes: i64, state: State<AppState>) -> AppResult<PomodoroState> {
-    let (snapshot, token) = {
-        let mut machine = pomodoro(&state)?;
-        machine.start(minutes)
-    };
-
-    spawn_pomodoro_timer(Arc::clone(&state.pomodoro), Arc::clone(&state.db), token);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-fn pause_pomodoro(state: State<AppState>) -> AppResult<PomodoroState> {
-    Ok(pomodoro(&state)?.pause())
-}
-
-#[tauri::command]
-fn reset_pomodoro(state: State<AppState>) -> AppResult<PomodoroState> {
-    Ok(pomodoro(&state)?.reset())
-}
-
-#[tauri::command]
-fn save_ai_settings(settings: AiSettingsInput, state: State<AppState>) -> AppResult<()> {
-    let settings = hydrate_saved_ai_key_if_needed(settings, &state)?;
-    let canonical = canonical_ai_settings_input_clean(&settings)?;
-    db(&state)?.save_ai_settings(&canonical).map_err(to_string)
-}
-
-#[tauri::command]
-fn get_ai_settings_masked(state: State<AppState>) -> AppResult<AiSettingsMasked> {
-    db(&state)?.get_ai_settings_masked().map_err(to_string)
-}
-
-#[tauri::command]
-async fn test_ai_connection(
-    settings: AiSettingsInput,
-    state: State<'_, AppState>,
-) -> AppResult<AiTestResult> {
-    let settings = hydrate_saved_ai_key_if_needed(settings, &state)?;
-    let resolved = resolve_ai_settings(&settings)?;
-    match ai::test_connection(&resolved).await {
-        Ok(result) => Ok(AiTestResult {
-            ok: true,
-            message: match (result.model_count, result.chat_ok) {
-                (Some(count), true) => {
-                    format!(
-                        "API 可用，检测到 {count} 个模型，当前模型 {} 可正常响应。",
-                        resolved.model
-                    )
-                }
-                (None, true) => {
-                    format!(
-                        "API 可用，当前模型 {} 可正常响应；该服务未返回模型列表。",
-                        resolved.model
-                    )
-                }
-                _ => "API 连接异常，请稍后重试。".into(),
-            },
-        }),
-        Err(error) => Ok(AiTestResult {
-            ok: false,
-            message: error,
-        }),
-    }
-}
-
-#[tauri::command]
-async fn list_ai_models(
-    settings: AiSettingsInput,
-    state: State<'_, AppState>,
-) -> AppResult<AiModelList> {
-    let settings = hydrate_saved_ai_key_if_needed(settings, &state)?;
-    let resolved = resolve_ai_settings_for_models(&settings)?;
-    match ai::list_models(&resolved).await {
-        Ok(mut models) => {
-            models.sort();
-            models.dedup();
-            Ok(AiModelList {
-                ok: true,
-                message: format!("检测到 {} 个可用模型。", models.len()),
-                models,
-            })
-        }
-        Err(error) => Ok(AiModelList {
-            ok: false,
-            models: Vec::new(),
-            message: error,
-        }),
-    }
-}
-
-#[tauri::command(rename_all = "snake_case")]
-async fn generate_ai_summary(
-    report_id: i64,
-    tone: Option<String>,
-    state: State<'_, AppState>,
-) -> AppResult<String> {
-    let (settings, report, pet_preferences) = {
-        let database = db(&state)?;
-        (
-            database.get_ai_settings().map_err(to_string)?,
-            database.get_report_context(report_id).map_err(to_string)?,
-            database.get_pet_preferences().map_err(to_string)?,
-        )
-    };
-
-    let Some(settings) = settings else {
-        let summary = mock_ai_summary(&report, Some(&pet_preferences));
-        db(&state)?
-            .update_report_summary(report_id, &summary)
-            .map_err(to_string)?;
-        return Ok(summary);
-    };
-    if settings.api_key.trim().is_empty() {
-        let summary = mock_ai_summary(&report, Some(&pet_preferences));
-        db(&state)?
-            .update_report_summary(report_id, &summary)
-            .map_err(to_string)?;
-        return Ok(summary);
-    }
-
-    let summary = ai::chat_completion(
-        &settings,
-        summary_messages_clean(&report, tone.as_deref(), Some(&pet_preferences)),
-    )
-    .await?;
-    db(&state)?
-        .update_report_summary(report_id, &summary)
-        .map_err(to_string)?;
-    Ok(summary)
-}
-
-#[tauri::command]
-fn get_recent_reports(limit: Option<i64>, state: State<AppState>) -> AppResult<Vec<DailyReport>> {
-    db(&state)?
-        .recent_daily_reports(limit.unwrap_or(30))
-        .map_err(to_string)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-fn delete_daily_report(report_id: i64, state: State<AppState>) -> AppResult<()> {
-    db(&state)?
-        .delete_daily_report(report_id)
-        .map_err(to_string)
-}
-
-#[tauri::command]
-fn get_data_dir(state: State<AppState>) -> String {
-    state.data_dir.to_string_lossy().to_string()
-}
-
-#[tauri::command]
-fn open_data_dir(state: State<AppState>) -> AppResult<()> {
-    fs::create_dir_all(&state.data_dir).map_err(to_string)?;
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer")
-            .arg(&state.data_dir)
-            .spawn()
-            .map_err(|error| format!("打开数据目录失败: {error}"))?;
-        Ok(())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("当前版本仅支持在 Windows 上打开数据目录。".into())
-    }
-}
-
-#[tauri::command]
-fn clear_local_data(state: State<AppState>) -> AppResult<()> {
-    if current_session_id(&state)?.is_some() {
-        return Err("请先结束当前学习会话，再清空本地学习数据。".into());
-    }
-    stop_sampler(&state);
-    stop_activity(&state);
-    db(&state)?.clear_local_data().map_err(to_string)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-fn export_daily_report(
-    report_id: i64,
-    format: String,
-    state: State<AppState>,
-) -> AppResult<String> {
-    let report = db(&state)?
-        .get_report_context(report_id)
-        .map_err(to_string)?;
-    let extension = match format.as_str() {
-        "txt" => "txt",
-        "markdown" | "md" => "md",
-        _ => return Err("导出格式只支持 txt 或 markdown。".into()),
-    };
-    let export_dir = state.data_dir.join("exports");
-    fs::create_dir_all(&export_dir).map_err(to_string)?;
-    let file_path = export_dir.join(format!("Aura_Report_{}.{}", report.id, extension));
-    let content = render_report_export(&report, extension == "md")?;
-    fs::write(&file_path, content).map_err(to_string)?;
-    Ok(file_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn get_app_preferences(state: State<AppState>) -> AppResult<AppPreferences> {
-    db(&state)?.get_app_preferences().map_err(to_string)
-}
-
-#[tauri::command]
-fn save_app_preferences(
-    preferences: AppPreferencesInput,
-    state: State<AppState>,
-) -> AppResult<AppPreferences> {
-    let minutes = preferences.default_pomodoro_minutes.clamp(1, 180);
-    let tone = normalize_tone(&preferences.ai_summary_tone).to_string();
-    db(&state)?
-        .save_app_preferences(
-            preferences.privacy_notice_accepted,
-            minutes,
-            &tone,
-            preferences.activity_capture_enabled,
-        )
-        .map_err(to_string)?;
-    db(&state)?.get_app_preferences().map_err(to_string)
-}
-
-#[tauri::command]
-fn get_pet_preferences(state: State<AppState>) -> AppResult<PetPreferences> {
-    db(&state)?.get_pet_preferences().map_err(to_string)
-}
-
-#[tauri::command]
-fn save_pet_preferences(
-    preferences: PetPreferencesInput,
-    state: State<AppState>,
-) -> AppResult<PetPreferences> {
-    let current = db(&state)?.get_pet_preferences().map_err(to_string)?;
-    let pet_name = non_empty_or(preferences.pet_name, &current.pet_name);
-    let pet_persona_prompt =
-        non_empty_or(preferences.pet_persona_prompt, DEFAULT_PET_PERSONA_PROMPT);
-    let active_pet_id = non_empty_or(preferences.active_pet_id, "default-aura");
-    let normalized = PetPreferences {
-        pet_enabled: preferences.pet_enabled,
-        pet_name,
-        pet_persona_prompt,
-        pet_bubble_enabled: preferences.pet_bubble_enabled,
-        proactive_ai_enabled: preferences.proactive_ai_enabled && preferences.pet_enabled,
-        idle_nudge_minutes: preferences.idle_nudge_minutes.clamp(5, 240),
-        app_switch_nudge_enabled: preferences.app_switch_nudge_enabled,
-        active_pet_id,
-        first_pet_enable_seen: preferences.first_pet_enable_seen,
-    };
-    db(&state)?
-        .save_pet_preferences(&normalized)
-        .map_err(to_string)?;
-    db(&state)?.get_pet_preferences().map_err(to_string)
-}
-
-#[tauri::command]
-fn show_pet_window(app: tauri::AppHandle, state: State<AppState>) -> AppResult<()> {
-    let preferences = db(&state)?.get_pet_preferences().map_err(to_string)?;
-    if !preferences.pet_enabled {
-        return Err("桌宠模式尚未启用。".into());
-    }
-    let Some(window) = app.get_webview_window("pet") else {
-        return Err("pet window is not available".into());
-    };
-    let _ = window.set_shadow(false);
-    window.show().map_err(to_string)?;
-    window.set_always_on_top(true).map_err(to_string)?;
-    Ok(())
-}
-
-#[tauri::command]
-fn hide_pet_window(app: tauri::AppHandle) -> AppResult<()> {
-    let Some(window) = app.get_webview_window("pet") else {
-        return Ok(());
-    };
-    window.hide().map_err(to_string)
-}
-
-#[tauri::command]
-fn drag_pet_window(app: tauri::AppHandle) -> AppResult<()> {
-    let Some(window) = app.get_webview_window("pet") else {
-        return Err("pet window is not available".into());
-    };
-    window.start_dragging().map_err(to_string)
-}
-
-#[tauri::command]
-fn get_pet_library_dir(state: State<AppState>) -> AppResult<String> {
-    let pet_root = pet_library_dir(&state.data_dir);
-    fs::create_dir_all(&pet_root).map_err(to_string)?;
-    Ok(pet_root.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn open_pet_library_dir(state: State<AppState>) -> AppResult<()> {
-    let pet_root = pet_library_dir(&state.data_dir);
-    fs::create_dir_all(&pet_root).map_err(to_string)?;
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer")
-            .arg(&pet_root)
-            .spawn()
-            .map_err(|error| format!("打开宠物文件夹失败: {error}"))?;
-        Ok(())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("当前版本仅支持在 Windows 上打开宠物文件夹。".into())
-    }
-}
-
-#[tauri::command(rename_all = "snake_case")]
-fn import_pet_profile(folder_path: String, state: State<AppState>) -> AppResult<PetProfile> {
-    let source_dir = PathBuf::from(folder_path.trim());
-    if !source_dir.is_dir() {
-        return Err("请选择一个包含 pet.json 的宠物文件夹。".into());
-    }
-    let profile = read_pet_profile_from_dir(&source_dir)?;
-    if profile.id == "default-aura" {
-        return Err("导入宠物不能使用保留 id: default-aura".into());
-    }
-
-    let pet_root = state.data_dir.join("pets");
-    fs::create_dir_all(&pet_root).map_err(to_string)?;
-    let target_dir = pet_root.join(&profile.id);
-    fs::create_dir_all(&target_dir).map_err(to_string)?;
-
-    fs::copy(source_dir.join("pet.json"), target_dir.join("pet.json")).map_err(to_string)?;
-    let manifest_text = fs::read_to_string(source_dir.join("pet.json")).map_err(to_string)?;
-    let manifest: PetManifest = serde_json::from_str(&manifest_text)
-        .map_err(|error| format!("pet.json 格式无效: {error}"))?;
-    if !manifest.spritesheet_path.trim().is_empty() {
-        copy_pet_asset(&source_dir, &target_dir, &manifest.spritesheet_path)?;
-    }
-    for relative_path in manifest.sprites.values() {
-        copy_pet_asset(&source_dir, &target_dir, relative_path)?;
-    }
-    let bubble_path = source_dir.join("bubble-lines.json");
-    if bubble_path.is_file() {
-        fs::copy(bubble_path, target_dir.join("bubble-lines.json")).map_err(to_string)?;
-    }
-
-    let imported = read_pet_profile_from_dir(&target_dir)?;
-    let mut preferences = db(&state)?.get_pet_preferences().map_err(to_string)?;
-    preferences.active_pet_id = imported.id.clone();
-    preferences.pet_name = imported.display_name.clone();
-    if let Some(prompt) = pet_prompt_from_bubble_lines(&target_dir)? {
-        preferences.pet_persona_prompt = prompt;
-    }
-    db(&state)?
-        .save_pet_preferences(&preferences)
-        .map_err(to_string)?;
-    Ok(imported)
-}
-
-#[tauri::command]
-fn get_pet_profiles(state: State<AppState>) -> AppResult<Vec<PetProfile>> {
-    let mut profiles = vec![default_pet_profile()];
-    let pet_root = pet_library_dir(&state.data_dir);
-    fs::create_dir_all(&pet_root).map_err(to_string)?;
-    if !pet_root.is_dir() {
-        return Ok(profiles);
-    }
-    for entry in fs::read_dir(&pet_root).map_err(to_string)? {
-        let entry = entry.map_err(to_string)?;
-        let path = entry.path();
-        if path.is_dir() {
-            match read_pet_profile_from_dir(&path) {
-                Ok(profile) => profiles.push(profile),
-                Err(error) => eprintln!("[Aura Companion pet] ignored invalid pet: {error}"),
-            }
-        }
-    }
-    profiles.sort_by(|a, b| a.display_name.cmp(&b.display_name));
-    profiles.dedup_by(|a, b| a.id == b.id);
-    Ok(profiles)
-}
-
-#[tauri::command]
-fn rescan_pet_profiles(state: State<AppState>) -> AppResult<Vec<PetProfile>> {
-    get_pet_profiles(state)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-async fn send_proactive_pet_nudge(
-    event_type: String,
-    state: State<'_, AppState>,
-) -> AppResult<ProactivePetNudge> {
-    let event_type = match event_type.as_str() {
-        "idle_app" | "app_switch" => event_type,
-        _ => return Err("unknown proactive pet event".into()),
-    };
-    let (preferences, settings, dashboard) = {
-        let preferences = db(&state)?.get_pet_preferences().map_err(to_string)?;
-        if !preferences.pet_enabled || !preferences.proactive_ai_enabled {
-            return Err("主动 AI 关心尚未启用。".into());
-        }
-        let settings = db(&state)?.get_ai_settings().map_err(to_string)?;
-        let dashboard = dashboard_state(&state)?;
-        (preferences, settings, dashboard)
-    };
-
-    let fallback_emotion = if event_type == "app_switch" {
-        "nudge"
-    } else {
-        "thinking"
-    };
-    let raw_message = if let Some(settings) = settings {
-        if settings.api_key.trim().is_empty() {
-            local_pet_nudge(&event_type, &dashboard)
-        } else {
-            ai::chat_completion(
-                &settings,
-                proactive_pet_messages(&preferences, &dashboard, &event_type),
-            )
-            .await
-            .unwrap_or_else(|_| local_pet_nudge(&event_type, &dashboard))
-        }
-    } else {
-        local_pet_nudge(&event_type, &dashboard)
-    };
-    let reply = parse_aura_reply(&raw_message, fallback_emotion);
-
-    Ok(ProactivePetNudge {
-        message: reply.message,
-        emotion: reply.emotion,
-        event_type,
-        created_at: now(),
-    })
-}
-
-#[tauri::command(rename_all = "snake_case")]
-async fn chat_with_aura(message: String, state: State<'_, AppState>) -> AppResult<AuraChatMessage> {
-    let message = message.trim().to_string();
-    if message.is_empty() {
-        return Err("message cannot be empty".into());
-    }
-
-    let (settings, history, pet_preferences, dashboard) = {
-        let database = db(&state)?;
-        let settings = database.get_ai_settings().map_err(to_string)?;
-        database
-            .add_aura_chat_message("user", &message, "idle")
-            .map_err(to_string)?;
-        let history = database.aura_chat_messages(40).map_err(to_string)?;
-        let pet_preferences = database.get_pet_preferences().map_err(to_string)?;
-        let dashboard = dashboard_state(&state)?;
-        (settings, history, pet_preferences, dashboard)
-    };
-
-    let raw_reply = if let Some(settings) = settings {
-        if settings.api_key.trim().is_empty() {
-            local_aura_chat_reply(&message, &dashboard)
-        } else {
-            ai::chat_completion(
-                &settings,
-                aura_chat_messages(&history, &pet_preferences, &dashboard),
-            )
-            .await
-            .unwrap_or_else(|_| local_aura_chat_reply(&message, &dashboard))
-        }
-    } else {
-        local_aura_chat_reply(&message, &dashboard)
-    };
-    let reply = parse_aura_reply(&raw_reply, "happy");
-
-    db(&state)?
-        .add_aura_chat_message("assistant", &reply.message, &reply.emotion)
-        .map_err(to_string)
-}
-
-#[tauri::command]
-fn get_aura_chat_history(state: State<AppState>) -> AppResult<Vec<AuraChatMessage>> {
-    db(&state)?.aura_chat_messages(80).map_err(to_string)
-}
-
-#[tauri::command]
-fn clear_aura_chat_history(state: State<AppState>) -> AppResult<()> {
-    db(&state)?.clear_aura_chat_messages().map_err(to_string)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-async fn chat_with_ai(
-    report_id: i64,
-    message: String,
-    state: State<'_, AppState>,
-) -> AppResult<ChatMessage> {
-    let message = message.trim().to_string();
-    if message.is_empty() {
-        return Err("message cannot be empty".into());
-    }
-
-    let (settings, report, history, pet_preferences) = {
-        let database = db(&state)?;
-        let settings = database.get_ai_settings().map_err(to_string)?;
-        let report = database.get_report_context(report_id).map_err(to_string)?;
-        let pet_preferences = database.get_pet_preferences().map_err(to_string)?;
-        let user_message = database
-            .add_chat_message(report_id, "user", &message)
-            .map_err(to_string)?;
-        let mut history = database
-            .chat_messages_for_report(report_id)
-            .map_err(to_string)?;
-        if !history.iter().any(|item| item.id == user_message.id) {
-            history.push(user_message);
-        }
-        (settings, report, history, pet_preferences)
-    };
-
-    let reply = if let Some(settings) = settings {
-        if settings.api_key.trim().is_empty() {
-            format!("Mock reply received: {message}")
-        } else {
-            ai::chat_completion(
-                &settings,
-                chat_messages_clean(&report, &history, Some(&pet_preferences)),
-            )
-            .await?
-        }
-    } else {
-        format!("Mock reply received: {message}")
-    };
-
-    db(&state)?
-        .add_chat_message(report_id, "assistant", &reply)
-        .map_err(to_string)
-}
-
-fn dashboard_state(state: &State<AppState>) -> AppResult<DashboardState> {
+pub(crate) fn dashboard_state(state: &State<AppState>) -> AppResult<DashboardState> {
     let now = Utc::now();
     let active_id = current_session_id(state)?;
-    let latest_sample = db(state)?.latest_window_sample().map_err(to_string)?;
+    let latest_sample = if active_id.is_some() {
+        db(state)?.latest_window_sample().map_err(to_string)?
+    } else {
+        None
+    };
     let today_study_seconds = db(state)?.today_study_seconds(now).map_err(to_string)?;
     let current_session_seconds = if let Some(session_id) = active_id {
         db(state)?
@@ -922,7 +57,7 @@ fn dashboard_state(state: &State<AppState>) -> AppResult<DashboardState> {
             .map_err(to_string)?
     } else {
         db(state)?
-            .app_usage_from_samples_since(&today_start_utc(now))
+            .app_usage_from_samples_since(&local_day_start_utc(now))
             .map_err(to_string)?
     };
     let (keyboard_count, mouse_count, activity) = if let Some(session_id) = active_id {
@@ -940,12 +75,16 @@ fn dashboard_state(state: &State<AppState>) -> AppResult<DashboardState> {
     } else {
         (0, 0, Vec::new())
     };
-    let focus_score = focus_score(
+    let focus_score_val = focus_score(
         today_study_seconds,
         app_usage.len(),
         pomodoro_snapshot(state).completed_count,
     );
-    let active_report_id = db(state)?.latest_report_id().map_err(to_string)?;
+    let active_report_id = if active_id.is_some() {
+        None
+    } else {
+        db(state)?.latest_report_id().map_err(to_string)?
+    };
 
     let current_app = latest_sample
         .as_ref()
@@ -967,7 +106,7 @@ fn dashboard_state(state: &State<AppState>) -> AppResult<DashboardState> {
         current_window_title,
         keyboard_count,
         mouse_count,
-        focus_score,
+        focus_score: focus_score_val,
         app_usage,
         activity,
         pomodoro: pomodoro_snapshot(state),
@@ -976,7 +115,7 @@ fn dashboard_state(state: &State<AppState>) -> AppResult<DashboardState> {
     })
 }
 
-fn empty_dashboard(pomodoro: PomodoroState) -> DashboardState {
+pub(crate) fn empty_dashboard(pomodoro_state: PomodoroState) -> DashboardState {
     DashboardState {
         session_status: "idle".into(),
         today_study_seconds: 0,
@@ -988,17 +127,17 @@ fn empty_dashboard(pomodoro: PomodoroState) -> DashboardState {
         focus_score: 0,
         app_usage: Vec::new(),
         activity: Vec::new(),
-        pomodoro,
+        pomodoro: pomodoro_state,
         active_report_id: None,
         ai_summary: None,
     }
 }
 
-fn report_for_session(
+pub(crate) fn report_for_session(
     id: i64,
     session: Session,
     total_seconds: i64,
-    focus_score: i64,
+    focus_score_val: i64,
     app_usage: Vec<AppUsage>,
     activity: Vec<ActivityPoint>,
     pomodoro_completed: i64,
@@ -1010,7 +149,7 @@ fn report_for_session(
         started_at: session.started_at,
         ended_at: session.ended_at.unwrap_or_else(now),
         total_seconds,
-        focus_score,
+        focus_score: focus_score_val,
         app_usage,
         activity,
         pomodoro_completed,
@@ -1018,31 +157,11 @@ fn report_for_session(
     }
 }
 
-fn default_pet_profile() -> PetProfile {
-    PetProfile {
-        id: "default-aura".into(),
-        display_name: "Aura".into(),
-        description: "Aura Companion 默认桌宠".into(),
-        spritesheet_path: String::new(),
-        sprites: HashMap::new(),
-        atlas: None,
-        persona: Some(DEFAULT_PET_PERSONA_PROMPT.into()),
-        sprite_scale: 1.0,
-        theme_color: None,
-        default_emotion: "idle".into(),
-        bubble_lines: vec![
-            "今天还没进入状态，要不要开一段？".into(),
-            "我在记录这段专注时间。".into(),
-            "这段记录下来了，要不要让我总结一下？".into(),
-        ],
-    }
-}
-
-fn pet_library_dir(data_dir: &Path) -> PathBuf {
+pub(crate) fn pet_library_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("pets")
 }
 
-fn analyze_pet_atlas(path: &Path) -> AppResult<PetAtlasMetadata> {
+pub(crate) fn analyze_pet_atlas(path: &Path) -> AppResult<PetAtlasMetadata> {
     let image = image::open(path)
         .map_err(|error| format!("failed to read pet spritesheet metadata: {error}"))?
         .to_rgba8();
@@ -1093,7 +212,7 @@ fn analyze_pet_atlas(path: &Path) -> AppResult<PetAtlasMetadata> {
     })
 }
 
-fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
+pub(crate) fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
     let manifest_path = dir.join("pet.json");
     if !manifest_path.is_file() {
         return Err("宠物文件夹缺少 pet.json。".into());
@@ -1115,7 +234,7 @@ fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
     }
     let mut sprites = HashMap::new();
     for (emotion, relative_path) in &manifest.sprites {
-        let emotion = normalize_emotion(emotion);
+        let emotion = db::normalize_emotion(emotion).to_string();
         let path = validate_pet_asset_path(dir, relative_path, "sprites")?;
         sprites.insert(emotion, path.to_string_lossy().to_string());
     }
@@ -1136,7 +255,8 @@ fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
         persona: manifest.persona,
         sprite_scale: manifest.sprite_scale.clamp(0.2, 3.0),
         theme_color: manifest.theme_color,
-        default_emotion: normalize_emotion(manifest.default_emotion.as_deref().unwrap_or("idle")),
+        default_emotion: db::normalize_emotion(manifest.default_emotion.as_deref().unwrap_or("idle"))
+            .to_string(),
         bubble_lines: read_bubble_lines(dir).unwrap_or_default(),
     })
 }
@@ -1164,7 +284,7 @@ fn read_bubble_lines(dir: &Path) -> AppResult<Vec<String>> {
         .collect())
 }
 
-fn pet_prompt_from_bubble_lines(dir: &Path) -> AppResult<Option<String>> {
+pub(crate) fn pet_prompt_from_bubble_lines(dir: &Path) -> AppResult<Option<String>> {
     let path = dir.join("bubble-lines.json");
     if !path.is_file() {
         return Ok(None);
@@ -1199,7 +319,7 @@ fn sanitize_pet_id(id: &str) -> AppResult<String> {
     }
 }
 
-fn non_empty_or(value: String, fallback: &str) -> String {
+pub(crate) fn non_empty_or(value: String, fallback: &str) -> String {
     let value = value.trim();
     if value.is_empty() {
         fallback.to_string()
@@ -1208,11 +328,11 @@ fn non_empty_or(value: String, fallback: &str) -> String {
     }
 }
 
-fn default_sprite_scale() -> f64 {
-    1.0
-}
-
-fn validate_pet_asset_path(dir: &Path, relative_path: &str, field: &str) -> AppResult<PathBuf> {
+pub(crate) fn validate_pet_asset_path(
+    dir: &Path,
+    relative_path: &str,
+    field: &str,
+) -> AppResult<PathBuf> {
     let relative_path = relative_path.trim();
     if relative_path.is_empty()
         || relative_path.contains("..")
@@ -1235,7 +355,11 @@ fn validate_pet_asset_path(dir: &Path, relative_path: &str, field: &str) -> AppR
     Ok(path)
 }
 
-fn copy_pet_asset(source_dir: &Path, target_dir: &Path, relative_path: &str) -> AppResult<()> {
+pub(crate) fn copy_pet_asset(
+    source_dir: &Path,
+    target_dir: &Path,
+    relative_path: &str,
+) -> AppResult<()> {
     let source = validate_pet_asset_path(source_dir, relative_path, "图片资源")?;
     let target = target_dir.join(relative_path.trim());
     if let Some(parent) = target.parent() {
@@ -1245,18 +369,7 @@ fn copy_pet_asset(source_dir: &Path, target_dir: &Path, relative_path: &str) -> 
     Ok(())
 }
 
-fn normalize_emotion(value: &str) -> String {
-    match value.trim() {
-        "studying" => "studying".into(),
-        "thinking" => "thinking".into(),
-        "happy" => "happy".into(),
-        "nudge" => "nudge".into(),
-        "ended" => "ended".into(),
-        _ => "idle".into(),
-    }
-}
-
-fn local_pet_nudge(event_type: &str, dashboard: &DashboardState) -> String {
+pub(crate) fn local_pet_nudge(event_type: &str, dashboard: &DashboardState) -> String {
     match event_type {
         "app_switch" => format!(
             "我看到你切到 {} 了，记得把节奏握在自己手里。",
@@ -1269,7 +382,7 @@ fn local_pet_nudge(event_type: &str, dashboard: &DashboardState) -> String {
     }
 }
 
-fn local_aura_chat_reply(message: &str, dashboard: &DashboardState) -> String {
+pub(crate) fn local_aura_chat_reply(message: &str, dashboard: &DashboardState) -> String {
     format!(
         r#"{{"message":"我看到了：{}。当前在 {}，今天专注分是 {}。我会先陪你把下一小步稳住。","emotion":"happy"}}"#,
         message.replace('"', "'"),
@@ -1278,7 +391,7 @@ fn local_aura_chat_reply(message: &str, dashboard: &DashboardState) -> String {
     )
 }
 
-fn parse_aura_reply(raw: &str, fallback_emotion: &str) -> AuraReply {
+pub(crate) fn parse_aura_reply(raw: &str, fallback_emotion: &str) -> AuraReply {
     let trimmed = raw.trim();
     let json_text = trimmed
         .strip_prefix("```json")
@@ -1301,8 +414,9 @@ fn parse_aura_reply(raw: &str, fallback_emotion: &str) -> AuraReply {
         let emotion = value
             .get("emotion")
             .and_then(|item| item.as_str())
-            .map(normalize_emotion)
-            .unwrap_or_else(|| normalize_emotion(fallback_emotion));
+            .map(db::normalize_emotion)
+            .unwrap_or_else(|| db::normalize_emotion(fallback_emotion))
+            .to_string();
         if !message.is_empty() {
             return AuraReply {
                 message,
@@ -1313,12 +427,12 @@ fn parse_aura_reply(raw: &str, fallback_emotion: &str) -> AuraReply {
     }
     AuraReply {
         message: trimmed.to_string(),
-        emotion: normalize_emotion(fallback_emotion),
+        emotion: db::normalize_emotion(fallback_emotion).to_string(),
         created_at: now(),
     }
 }
 
-fn proactive_pet_messages(
+pub(crate) fn proactive_pet_messages(
     preferences: &PetPreferences,
     dashboard: &DashboardState,
     event_type: &str,
@@ -1347,7 +461,7 @@ fn proactive_pet_messages(
     ]
 }
 
-fn aura_chat_messages(
+pub(crate) fn aura_chat_messages(
     history: &[AuraChatMessage],
     preferences: &PetPreferences,
     dashboard: &DashboardState,
@@ -1373,8 +487,9 @@ fn aura_chat_messages(
     messages
 }
 
-fn render_report_export(report: &ReportContext, markdown: bool) -> AppResult<String> {
-    let app_usage: Vec<AppUsage> = serde_json::from_str(&report.app_usage_json).unwrap_or_default();
+pub(crate) fn render_report_export(report: &ReportContext, markdown: bool) -> AppResult<String> {
+    let app_usage: Vec<AppUsage> =
+        serde_json::from_str(&report.app_usage_json).unwrap_or_default();
     let activity: Vec<ActivityPoint> =
         serde_json::from_str(&report.activity_json).unwrap_or_default();
     let mut lines = Vec::new();
@@ -1429,7 +544,10 @@ fn render_report_export(report: &ReportContext, markdown: bool) -> AppResult<Str
         lines.push(format!("会话 ID：{}", report.session_id));
         lines.push(format!("开始时间：{}", report.started_at));
         lines.push(format!("结束时间：{}", report.ended_at));
-        lines.push(format!("学习时长：{}", human_seconds(report.total_seconds)));
+        lines.push(format!(
+            "学习时长：{}",
+            human_seconds(report.total_seconds)
+        ));
         lines.push(format!("专注度：{}", report.focus_score));
         lines.push(format!("番茄钟完成数：{}", report.pomodoro_completed));
         lines.push(String::new());
@@ -1470,25 +588,33 @@ fn render_report_export(report: &ReportContext, markdown: bool) -> AppResult<Str
     Ok(lines.join("\n"))
 }
 
-fn db<'a>(state: &'a State<'_, AppState>) -> AppResult<MutexGuard<'a, Database>> {
+/* -------------------------------------------------------------------------- */
+/*  state accessors                                                           */
+/* -------------------------------------------------------------------------- */
+
+pub(crate) fn db<'a>(state: &'a State<'_, AppState>) -> AppResult<MutexGuard<'a, Database>> {
     state.db.lock().map_err(|_| "database lock failed".into())
 }
 
-fn active_session<'a>(state: &'a State<'_, AppState>) -> AppResult<MutexGuard<'a, Option<i64>>> {
+pub(crate) fn active_session<'a>(
+    state: &'a State<'_, AppState>,
+) -> AppResult<MutexGuard<'a, Option<i64>>> {
     state
         .active_session_id
         .lock()
         .map_err(|_| "session lock failed".into())
 }
 
-fn pomodoro<'a>(state: &'a State<'_, AppState>) -> AppResult<MutexGuard<'a, PomodoroMachine>> {
+pub(crate) fn pomodoro<'a>(
+    state: &'a State<'_, AppState>,
+) -> AppResult<MutexGuard<'a, PomodoroMachine>> {
     state
         .pomodoro
         .lock()
         .map_err(|_| "pomodoro lock failed".into())
 }
 
-fn pomodoro_snapshot(state: &State<AppState>) -> PomodoroState {
+pub(crate) fn pomodoro_snapshot(state: &State<AppState>) -> PomodoroState {
     state
         .pomodoro
         .lock()
@@ -1496,11 +622,15 @@ fn pomodoro_snapshot(state: &State<AppState>) -> PomodoroState {
         .unwrap_or_default()
 }
 
-fn current_session_id(state: &State<AppState>) -> AppResult<Option<i64>> {
+pub(crate) fn current_session_id(state: &State<AppState>) -> AppResult<Option<i64>> {
     Ok(*active_session(state)?)
 }
 
-fn session_total_seconds(session: &Session) -> i64 {
+/* -------------------------------------------------------------------------- */
+/*  time / score helpers                                                      */
+/* -------------------------------------------------------------------------- */
+
+pub(crate) fn session_total_seconds(session: &Session) -> i64 {
     let Ok(started_at) = DateTime::parse_from_rfc3339(&session.started_at) else {
         return 0;
     };
@@ -1516,24 +646,41 @@ fn session_elapsed_seconds(session: &Session, now: DateTime<Utc>) -> i64 {
     let Ok(started_at) = DateTime::parse_from_rfc3339(&session.started_at) else {
         return 0;
     };
-    (now - started_at.with_timezone(&Utc)).num_seconds().max(0)
+    (now - started_at.with_timezone(&Utc))
+        .num_seconds()
+        .max(0)
 }
 
-fn focus_score(total_seconds: i64, app_count: usize, pomodoro_completed: i64) -> i64 {
+pub(crate) fn focus_score(
+    total_seconds: i64,
+    app_count: usize,
+    pomodoro_completed: i64,
+) -> i64 {
     let duration_bonus = (total_seconds / 900).min(8);
     let switch_penalty = (app_count.saturating_sub(3) as i64 * 4).min(24);
     let pomodoro_bonus = (pomodoro_completed * 4).min(12);
     (80 + duration_bonus + pomodoro_bonus - switch_penalty).clamp(0, 100)
 }
 
-fn today_start_utc(now: DateTime<Utc>) -> String {
-    now.date_naive()
-        .and_time(NaiveTime::MIN)
-        .and_utc()
+fn local_day_start_utc(now: DateTime<Utc>) -> String {
+    let local_now = now.with_timezone(&Local);
+    let date = local_now.date_naive();
+    Local
+        .with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
+        .single()
+        .unwrap_or(local_now)
+        .with_timezone(&Utc)
         .to_rfc3339()
 }
 
-fn mock_ai_summary(report: &ReportContext, pet_preferences: Option<&PetPreferences>) -> String {
+/* -------------------------------------------------------------------------- */
+/*  AI prompt helpers                                                         */
+/* -------------------------------------------------------------------------- */
+
+pub(crate) fn mock_ai_summary(
+    report: &ReportContext,
+    pet_preferences: Option<&PetPreferences>,
+) -> String {
     let prefix = if pet_preferences
         .map(|preferences| preferences.pet_enabled)
         .unwrap_or(false)
@@ -1551,9 +698,11 @@ fn mock_ai_summary(report: &ReportContext, pet_preferences: Option<&PetPreferenc
     )
 }
 
-fn canonical_ai_settings_input_clean(settings: &AiSettingsInput) -> AppResult<AiSettingsInput> {
+pub(crate) fn canonical_ai_settings_input_clean(
+    settings: &AiSettingsInput,
+) -> AppResult<AiSettingsInput> {
     let provider = normalize_ai_provider(settings.provider.as_deref());
-    match provider {
+    match provider.as_str() {
         "deepseek" => {
             let model = settings.model.trim();
             if !deepseek_models().contains(&model) {
@@ -1569,7 +718,7 @@ fn canonical_ai_settings_input_clean(settings: &AiSettingsInput) -> AppResult<Ai
                 model: model.into(),
             })
         }
-        "custom" => {
+        value if db::is_custom_provider(value) => {
             if settings.base_url.trim().is_empty() {
                 return Err("请填写自定义 API Base URL。".into());
             }
@@ -1580,7 +729,7 @@ fn canonical_ai_settings_input_clean(settings: &AiSettingsInput) -> AppResult<Ai
                 return Err("请填写自定义 API Key。".into());
             }
             Ok(AiSettingsInput {
-                provider: Some("custom".into()),
+                provider: Some(provider),
                 base_url: settings.base_url.trim().into(),
                 api_key: settings.api_key.trim().into(),
                 model: settings.model.trim().into(),
@@ -1590,12 +739,7 @@ fn canonical_ai_settings_input_clean(settings: &AiSettingsInput) -> AppResult<Ai
     }
 }
 
-#[allow(dead_code)]
-fn canonical_ai_settings_input(settings: &AiSettingsInput) -> AppResult<AiSettingsInput> {
-    canonical_ai_settings_input_clean(settings)
-}
-
-fn hydrate_saved_ai_key_if_needed(
+pub(crate) fn hydrate_saved_ai_key_if_needed(
     settings: AiSettingsInput,
     state: &State<'_, AppState>,
 ) -> AppResult<AiSettingsInput> {
@@ -1609,12 +753,15 @@ fn hydrate_saved_ai_key_if_needed(
         .providers
         .iter()
         .find(|item| item.provider == provider);
-    if !provider_state.map(|item| item.configured).unwrap_or(false) {
+    if !provider_state
+        .map(|item| item.configured)
+        .unwrap_or(false)
+    {
         return Ok(settings);
     }
 
     let Some(saved) = db(state)?
-        .get_ai_settings_for_provider(provider)
+        .get_ai_settings_for_provider(&provider)
         .map_err(to_string)?
     else {
         return Ok(settings);
@@ -1626,7 +773,7 @@ fn hydrate_saved_ai_key_if_needed(
     })
 }
 
-fn resolve_ai_settings(settings: &AiSettingsInput) -> AppResult<AiSettings> {
+pub(crate) fn resolve_ai_settings(settings: &AiSettingsInput) -> AppResult<AiSettings> {
     let canonical = canonical_ai_settings_input_clean(settings)?;
     Ok(AiSettings {
         base_url: canonical.base_url,
@@ -1635,14 +782,16 @@ fn resolve_ai_settings(settings: &AiSettingsInput) -> AppResult<AiSettings> {
     })
 }
 
-fn resolve_ai_settings_for_models(settings: &AiSettingsInput) -> AppResult<AiSettings> {
+pub(crate) fn resolve_ai_settings_for_models(
+    settings: &AiSettingsInput,
+) -> AppResult<AiSettings> {
     let provider = normalize_ai_provider(settings.provider.as_deref());
-    let (base_url, api_key) = match provider {
+    let (base_url, api_key) = match provider.as_str() {
         "deepseek" => (
             "https://api.deepseek.com".to_string(),
             settings.api_key.trim().to_string(),
         ),
-        "custom" => {
+        value if db::is_custom_provider(value) => {
             if settings.base_url.trim().is_empty() {
                 return Err("请填写自定义 API Base URL。".into());
             }
@@ -1663,11 +812,11 @@ fn resolve_ai_settings_for_models(settings: &AiSettingsInput) -> AppResult<AiSet
     })
 }
 
-fn normalize_ai_provider(provider: Option<&str>) -> &'static str {
-    match provider.unwrap_or("deepseek") {
-        "deepseek" => "deepseek",
-        "custom" => "custom",
-        _ => "unknown",
+fn normalize_ai_provider(provider: Option<&str>) -> String {
+    match provider.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("deepseek") => "deepseek".into(),
+        Some(value) if db::is_custom_provider(value) => value.into(),
+        _ => "unknown".into(),
     }
 }
 
@@ -1675,7 +824,7 @@ fn deepseek_models() -> [&'static str; 2] {
     ["deepseek-v4-pro", "deepseek-v4-flash"]
 }
 
-fn summary_messages_clean(
+pub(crate) fn summary_messages_clean(
     report: &ReportContext,
     tone: Option<&str>,
     pet_preferences: Option<&PetPreferences>,
@@ -1703,7 +852,7 @@ fn summary_messages_clean(
     messages
 }
 
-fn chat_messages_clean(
+pub(crate) fn chat_messages_clean(
     report: &ReportContext,
     history: &[ChatMessage],
     pet_preferences: Option<&PetPreferences>,
@@ -1711,9 +860,8 @@ fn chat_messages_clean(
     let mut messages = vec![
         AiMessage {
             role: "system".into(),
-            content:
-                "你是 Aura 的学习复盘聊天助手。请基于日报上下文回答，保持简短、具体、友好。"
-                    .into(),
+            content: "你是 Aura 的学习复盘聊天助手。请基于日报上下文回答，保持简短、具体、友好。"
+                .into(),
         },
         AiMessage {
             role: "user".into(),
@@ -1742,9 +890,14 @@ fn chat_messages_clean(
 fn aura_system_prompt(pet_preferences: Option<&PetPreferences>, instruction: &str) -> String {
     if let Some(preferences) = pet_preferences {
         if preferences.pet_enabled {
+            let persona = format!(
+                "当前桌宠心情：{}\n{}",
+                daily_pet_mood(),
+                preferences.pet_persona_prompt
+            );
             return format!(
                 "你是 Aura Companion 的 AI 桌面伙伴，会基于用户本地学习/工作记录进行陪伴、提醒和复盘。角色设定如下：{}\n{}",
-                preferences.pet_persona_prompt,
+                persona,
                 instruction
             );
         }
@@ -1753,6 +906,23 @@ fn aura_system_prompt(pet_preferences: Option<&PetPreferences>, instruction: &st
         "你是 Aura Companion 的学习/工作复盘助手。你会基于用户本地记录进行总结和聊天。{}",
         instruction
     )
+}
+
+fn daily_pet_mood() -> &'static str {
+    let now = Local::now();
+    let bucket = match now.hour() {
+        5..=10 => 0,
+        11..=16 => 1,
+        17..=21 => 2,
+        _ => 3,
+    };
+    match (now.ordinal() as usize + bucket) % 5 {
+        0 => "安静专注",
+        1 => "轻快好奇",
+        2 => "温柔鼓励",
+        3 => "有点俏皮",
+        _ => "认真陪伴",
+    }
 }
 
 fn report_prompt_clean(report: &ReportContext, tone: Option<&str>) -> String {
@@ -1782,7 +952,7 @@ fn report_prompt_clean(report: &ReportContext, tone: Option<&str>) -> String {
     )
 }
 
-fn tone_label_clean(tone: Option<&str>) -> &'static str {
+pub(crate) fn tone_label_clean(tone: Option<&str>) -> &'static str {
     match normalize_tone(tone.unwrap_or("witty")) {
         "gentle" => "温和鼓励",
         "normal" => "正常复盘",
@@ -1800,104 +970,10 @@ fn tone_instruction_clean(tone: Option<&str>) -> &'static str {
     }
 }
 
-#[allow(dead_code)]
-fn summary_messages(report: &ReportContext, tone: Option<&str>) -> Vec<AiMessage> {
-    vec![
-        AiMessage {
-            role: "system".into(),
-            content: format!(
-                "你是 Aura 的学习总结助手。请用中文输出，不要编造未提供的数据。总结语气：{}。",
-                tone_instruction(tone)
-            ),
-        },
-        AiMessage {
-            role: "user".into(),
-            content: report_prompt(report, tone),
-        },
-    ]
-}
-
-#[allow(dead_code)]
-fn chat_messages(report: &ReportContext, history: &[ChatMessage]) -> Vec<AiMessage> {
-    let mut messages = vec![
-        AiMessage {
-            role: "system".into(),
-            content:
-                "你是 Aura 的学习复盘聊天助手。请基于日报上下文回答，保持简短、具体、友好。"
-                    .into(),
-        },
-        AiMessage {
-            role: "user".into(),
-            content: report_prompt(report, None),
-        },
-        AiMessage {
-            role: "assistant".into(),
-            content: report
-                .ai_summary
-                .clone()
-                .unwrap_or_else(|| "我已经看到这份学习日报，可以继续聊。".into()),
-        },
-    ];
-
-    messages.extend(history.iter().map(|message| AiMessage {
-        role: message.role.clone(),
-        content: message.content.clone(),
-    }));
-    messages
-}
-
-#[allow(dead_code)]
-fn report_prompt(report: &ReportContext, tone: Option<&str>) -> String {
-    format!(
-        "请根据以下本地学习日报生成总结：\n\
-         report_id: {}\n\
-         session_id: {}\n\
-         started_at: {}\n\
-         ended_at: {}\n\
-         total_seconds: {}\n\
-         focus_score: {}\n\
-         pomodoro_completed: {}\n\
-         app_usage_json: {}\n\
-         activity_json: {}\n\
-         总结语气: {}\n\
-         要求：先一句话概括，再给 2-3 条具体观察，最后给一句符合语气的建议或鼓励。",
-        report.id,
-        report.session_id,
-        report.started_at,
-        report.ended_at,
-        report.total_seconds,
-        report.focus_score,
-        report.pomodoro_completed,
-        report.app_usage_json,
-        report.activity_json,
-        tone_label(tone)
-    )
-}
-
-fn normalize_tone(tone: &str) -> &str {
+pub(crate) fn normalize_tone(tone: &str) -> &str {
     match tone {
         "gentle" | "normal" | "witty" | "strict" => tone,
         _ => "witty",
-    }
-}
-
-#[allow(dead_code)]
-fn tone_label(tone: Option<&str>) -> &'static str {
-    match normalize_tone(tone.unwrap_or("witty")) {
-        "gentle" => "温和鼓励",
-        "normal" => "正常复盘",
-        "strict" => "严格监督",
-        _ => "轻微吐槽",
-    }
-}
-
-#[allow(dead_code)]
-fn tone_instruction(tone: Option<&str>) -> &'static str {
-    match normalize_tone(tone.unwrap_or("witty")) {
-        "gentle" => "温和鼓励，重点肯定今天做得好的地方，少批评",
-        "normal" => "正常复盘，客观指出表现、问题和下一步建议",
-        "strict" => "严格监督，直说拖延和分心问题，但不要羞辱用户",
-        _ => "轻微吐槽，语气可以有一点幽默，但要友好和有帮助",
     }
 }
 
@@ -1907,7 +983,14 @@ fn human_seconds(seconds: i64) -> String {
     format!("{minutes}m {remaining_seconds}s")
 }
 
-fn start_sampler_if_needed(state: &State<AppState>, session_id: i64) -> AppResult<()> {
+/* -------------------------------------------------------------------------- */
+/*  sampler / activity lifecycle                                              */
+/* -------------------------------------------------------------------------- */
+
+pub(crate) fn start_sampler_if_needed(
+    state: &State<AppState>,
+    session_id: i64,
+) -> AppResult<()> {
     let mut sampler = state
         .sampler
         .lock()
@@ -1927,10 +1010,6 @@ fn start_sampler_if_needed(state: &State<AppState>, session_id: i64) -> AppResul
         while !thread_stop.load(Ordering::SeqCst) {
             match sample_foreground_window() {
                 Ok(sample) => {
-                    println!(
-                        "[Aura collector] sample app='{}' title='{}'",
-                        sample.app_name, sample.window_title
-                    );
                     if let Ok(database) = thread_db.lock() {
                         if let Err(error) = database.add_window_sample(session_id, &sample) {
                             eprintln!("[Aura collector] failed to save sample: {error}");
@@ -1954,8 +1033,12 @@ fn start_sampler_if_needed(state: &State<AppState>, session_id: i64) -> AppResul
     Ok(())
 }
 
-fn stop_sampler(state: &State<AppState>) {
-    let sampler = state.sampler.lock().ok().and_then(|mut value| value.take());
+pub(crate) fn stop_sampler(state: &State<AppState>) {
+    let sampler = state
+        .sampler
+        .lock()
+        .ok()
+        .and_then(|mut value| value.take());
     if let Some(sampler) = sampler {
         println!("[Aura collector] stopping sampler");
         sampler.stop.store(true, Ordering::SeqCst);
@@ -1965,7 +1048,10 @@ fn stop_sampler(state: &State<AppState>) {
     }
 }
 
-fn start_activity_if_needed(state: &State<AppState>, session_id: i64) -> AppResult<()> {
+pub(crate) fn start_activity_if_needed(
+    state: &State<AppState>,
+    session_id: i64,
+) -> AppResult<()> {
     if !db(state)?
         .get_app_preferences()
         .map_err(to_string)?
@@ -1998,7 +1084,7 @@ fn start_activity_if_needed(state: &State<AppState>, session_id: i64) -> AppResu
     Ok(())
 }
 
-fn stop_activity(state: &State<AppState>) {
+pub(crate) fn stop_activity(state: &State<AppState>) {
     let activity = state
         .activity
         .lock()
@@ -2006,8 +1092,37 @@ fn stop_activity(state: &State<AppState>) {
         .and_then(|mut value| value.take());
     if let Some(activity) = activity {
         println!("[Aura activity] stopping activity capture");
-        activity.stop();
+        let session_id = current_session_id(state).unwrap_or(None).unwrap_or(0);
+        activity.stop(session_id, &state.db);
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  window helpers                                                            */
+/* -------------------------------------------------------------------------- */
+
+pub(crate) fn apply_pet_window_preferences_to_app(
+    app: &tauri::AppHandle,
+    preferences: &PetPreferences,
+) -> AppResult<()> {
+    if let Some(window) = app.get_webview_window("pet") {
+        apply_pet_window_preferences_to_window(&window, preferences)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_pet_window_preferences_to_window(
+    window: &tauri::WebviewWindow,
+    preferences: &PetPreferences,
+) -> AppResult<()> {
+    window
+        .set_always_on_top(preferences.pet_always_on_top)
+        .map_err(to_string)?;
+    let scale = preferences.pet_scale.clamp(0.8, 1.4);
+    window
+        .set_size(LogicalSize::new(300.0 * scale, 380.0 * scale))
+        .map_err(to_string)?;
+    Ok(())
 }
 
 fn pending_activity_counts(state: &State<AppState>) -> (i64, i64) {
@@ -2019,23 +1134,23 @@ fn pending_activity_counts(state: &State<AppState>) -> (i64, i64) {
         .unwrap_or((0, 0))
 }
 
-fn spawn_pomodoro_timer(
-    pomodoro: Arc<Mutex<PomodoroMachine>>,
-    db: Arc<Mutex<Database>>,
+pub(crate) fn spawn_pomodoro_timer(
+    pomodoro_machine: Arc<Mutex<PomodoroMachine>>,
+    db_arc: Arc<Mutex<Database>>,
     token: u64,
 ) {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(1));
 
-        let tick = match pomodoro.lock() {
+        let tick = match pomodoro_machine.lock() {
             Ok(mut machine) => machine.tick_one_second(token),
             Err(_) => break,
         };
 
         match tick {
             TickResult::Completed(_) => {
-                if let Ok(db) = db.lock() {
-                    let _ = db.add_pomodoro_event("completed");
+                if let Ok(database) = db_arc.lock() {
+                    let _ = database.add_pomodoro_event("completed");
                 }
                 break;
             }
@@ -2044,6 +1159,10 @@ fn spawn_pomodoro_timer(
         }
     });
 }
+
+/* -------------------------------------------------------------------------- */
+/*  migration                                                                 */
+/* -------------------------------------------------------------------------- */
 
 fn app_data_dir(handle: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let dir = handle.path().app_data_dir()?;
@@ -2090,7 +1209,10 @@ fn has_directory_files(path: &Path) -> Result<bool, Box<dyn std::error::Error>> 
     Ok(false)
 }
 
-fn copy_dir_contents(source: &Path, target: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn copy_dir_contents(
+    source: &Path,
+    target: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(target)?;
     for entry in fs::read_dir(source)? {
         let entry = entry?;
@@ -2108,13 +1230,34 @@ fn copy_dir_contents(source: &Path, target: &Path) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-fn to_string(error: impl std::fmt::Display) -> String {
+/* -------------------------------------------------------------------------- */
+/*  utilities                                                                 */
+/* -------------------------------------------------------------------------- */
+
+pub(crate) fn to_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-fn now() -> String {
+pub(crate) fn now() -> String {
     Utc::now().to_rfc3339()
 }
+
+pub(crate) fn aura_chat_request_context(
+    database: &Database,
+    message: &str,
+) -> AppResult<(Option<AiSettings>, Vec<AuraChatMessage>, PetPreferences)> {
+    let settings = database.get_ai_settings().map_err(to_string)?;
+    database
+        .add_aura_chat_message("user", message, "idle")
+        .map_err(to_string)?;
+    let history = database.aura_chat_messages(40).map_err(to_string)?;
+    let pet_preferences = database.get_pet_preferences().map_err(to_string)?;
+    Ok((settings, history, pet_preferences))
+}
+
+/* -------------------------------------------------------------------------- */
+/*  main                                                                      */
+/* -------------------------------------------------------------------------- */
 
 fn main() {
     tauri::Builder::default()
@@ -2134,45 +1277,54 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            start_session,
-            stop_session,
-            get_current_status,
-            get_today_dashboard,
-            start_pomodoro,
-            pause_pomodoro,
-            reset_pomodoro,
-            save_ai_settings,
-            get_ai_settings_masked,
-            test_ai_connection,
-            list_ai_models,
-            generate_ai_summary,
-            chat_with_ai,
-            chat_with_aura,
-            get_aura_chat_history,
-            clear_aura_chat_history,
-            get_recent_reports,
-            delete_daily_report,
-            get_data_dir,
-            open_data_dir,
-            clear_local_data,
-            export_daily_report,
-            get_app_preferences,
-            save_app_preferences,
-            get_pet_preferences,
-            save_pet_preferences,
-            show_pet_window,
-            hide_pet_window,
-            drag_pet_window,
-            get_pet_library_dir,
-            open_pet_library_dir,
-            import_pet_profile,
-            get_pet_profiles,
-            rescan_pet_profiles,
-            send_proactive_pet_nudge
+            cmd::start_session,
+            cmd::stop_session,
+            cmd::get_current_status,
+            cmd::get_today_dashboard,
+            cmd::start_pomodoro,
+            cmd::pause_pomodoro,
+            cmd::reset_pomodoro,
+            cmd::save_ai_settings,
+            cmd::get_ai_settings_masked,
+            cmd::delete_ai_settings_provider,
+            cmd::test_ai_connection,
+            cmd::list_ai_models,
+            cmd::generate_ai_summary,
+            cmd::chat_with_ai,
+            cmd::chat_with_aura,
+            cmd::get_aura_chat_history,
+            cmd::clear_aura_chat_history,
+            cmd::get_recent_reports,
+            cmd::delete_daily_report,
+            cmd::get_data_dir,
+            cmd::open_data_dir,
+            cmd::clear_local_data,
+            cmd::export_daily_report,
+            cmd::get_app_preferences,
+            cmd::save_app_preferences,
+            cmd::get_pet_preferences,
+            cmd::save_pet_preferences,
+            cmd::show_pet_window,
+            cmd::hide_pet_window,
+            cmd::drag_pet_window,
+            cmd::show_pet_menu,
+            cmd::hide_pet_menu,
+            cmd::show_main_window,
+            cmd::apply_pet_window_preferences,
+            cmd::get_pet_library_dir,
+            cmd::open_pet_library_dir,
+            cmd::import_pet_profile,
+            cmd::get_pet_profiles,
+            cmd::rescan_pet_profiles,
+            cmd::send_proactive_pet_nudge
         ])
         .run(tauri::generate_context!())
         .expect("error while running Aura");
 }
+
+/* -------------------------------------------------------------------------- */
+/*  tests                                                                     */
+/* -------------------------------------------------------------------------- */
 
 #[cfg(test)]
 mod tests {
@@ -2285,6 +1437,20 @@ mod tests {
     }
 
     #[test]
+    fn aura_chat_context_loads_without_dashboard_reentry() {
+        let database = Database::memory().expect("database should initialize");
+
+        let (settings, history, preferences) =
+            aura_chat_request_context(&database, "hello").expect("context should load");
+
+        assert!(settings.is_none());
+        assert!(!preferences.pet_enabled);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[0].content, "hello");
+    }
+
+    #[test]
     fn report_prompt_contains_local_report_context() {
         let report = ReportContext {
             id: 7,
@@ -2299,7 +1465,7 @@ mod tests {
             ai_summary: None,
         };
 
-        let prompt = report_prompt(&report, Some("witty"));
+        let prompt = report_prompt_clean(&report, Some("witty"));
         assert!(prompt.contains("report_id: 7"));
         assert!(prompt.contains("Code"));
         assert!(prompt.contains("focus_score: 86"));
@@ -2330,10 +1496,10 @@ mod tests {
 
     #[test]
     fn tone_values_are_normalized() {
-        assert_eq!(tone_label(Some("gentle")), "温和鼓励");
-        assert_eq!(tone_label(Some("normal")), "正常复盘");
-        assert_eq!(tone_label(Some("strict")), "严格监督");
-        assert_eq!(tone_label(Some("unknown")), "轻微吐槽");
+        assert_eq!(tone_label_clean(Some("gentle")), "温和鼓励");
+        assert_eq!(tone_label_clean(Some("normal")), "正常复盘");
+        assert_eq!(tone_label_clean(Some("strict")), "严格监督");
+        assert_eq!(tone_label_clean(Some("unknown")), "轻微吐槽");
     }
 
     #[test]

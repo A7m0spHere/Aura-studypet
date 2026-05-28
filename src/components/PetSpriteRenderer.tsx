@@ -13,11 +13,13 @@ const FALLBACK_ATLAS_FRAMES = Array.from({ length: PET_ATLAS_COLUMNS }, (_, inde
 
 const ATLAS_ROWS_BY_ANIMATION: Record<PetAnimationName, number> = {
   idle: 0,
-  studying: 0,
-  thinking: 0,
-  happy: 0,
-  nudge: 0,
-  ended: 0,
+  studying: 1,
+  thinking: 2,
+  happy: 3,
+  nudge: 4,
+  ended: 5,
+  interact: 6,
+  chat: 7,
   dragging: 0,
   dropped: 0,
 };
@@ -29,6 +31,8 @@ const ANIMATION_EMOTION_FALLBACK: Record<PetAnimationName, PetEmotion> = {
   happy: "happy",
   nudge: "nudge",
   ended: "ended",
+  interact: "interact",
+  chat: "chat",
   dragging: "idle",
   dropped: "idle",
 };
