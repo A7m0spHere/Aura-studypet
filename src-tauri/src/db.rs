@@ -5,8 +5,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{
     ai::AiSettings, collector::WindowSample, ActivityPoint, AiProviderSettingsMasked,
-    AiSettingsInput, AiSettingsMasked, AppPreferences, AppUsage, ChatMessage, DailyReport,
-    ReportContext, Session,
+    AiSettingsInput, AiSettingsMasked, AppPreferences, AppUsage, AuraChatMessage, ChatMessage,
+    DailyReport, PetPreferences, ReportContext, Session,
 };
 
 pub struct Database {
@@ -96,6 +96,14 @@ impl Database {
               report_id INTEGER NOT NULL,
               role TEXT NOT NULL,
               content TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS aura_chat_messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              role TEXT NOT NULL,
+              content TEXT NOT NULL,
+              emotion TEXT NOT NULL DEFAULT 'idle',
               created_at TEXT NOT NULL
             );
 
@@ -484,6 +492,7 @@ impl Database {
         self.conn.execute_batch(
             "
             DELETE FROM chat_messages;
+            DELETE FROM aura_chat_messages;
             DELETE FROM daily_reports;
             DELETE FROM app_usage;
             DELETE FROM window_samples;
@@ -802,6 +811,56 @@ impl Database {
         messages
     }
 
+    pub fn add_aura_chat_message(
+        &self,
+        role: &str,
+        content: &str,
+        emotion: &str,
+    ) -> rusqlite::Result<AuraChatMessage> {
+        let created_at = Utc::now().to_rfc3339();
+        let emotion = normalize_emotion_db(emotion);
+        self.conn.execute(
+            "INSERT INTO aura_chat_messages (role, content, emotion, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![role, content, emotion, created_at],
+        )?;
+        Ok(AuraChatMessage {
+            id: self.conn.last_insert_rowid(),
+            role: role.into(),
+            content: content.into(),
+            emotion: emotion.into(),
+            created_at,
+        })
+    }
+
+    pub fn aura_chat_messages(&self, limit: i64) -> rusqlite::Result<Vec<AuraChatMessage>> {
+        let limit = limit.clamp(1, 100);
+        let mut statement = self.conn.prepare(
+            "SELECT id, role, content, emotion, created_at
+             FROM aura_chat_messages
+             ORDER BY id DESC
+             LIMIT ?1",
+        )?;
+        let mut messages = statement
+            .query_map(params![limit], |row| {
+                Ok(AuraChatMessage {
+                    id: row.get(0)?,
+                    role: row.get(1)?,
+                    content: row.get(2)?,
+                    emotion: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        messages.reverse();
+        Ok(messages)
+    }
+
+    pub fn clear_aura_chat_messages(&self) -> rusqlite::Result<()> {
+        self.conn.execute("DELETE FROM aura_chat_messages", [])?;
+        Ok(())
+    }
+
     pub fn add_pomodoro_event(&self, event_type: &str) -> rusqlite::Result<()> {
         self.conn.execute(
             "INSERT INTO pomodoro_events (event_type, recorded_at) VALUES (?1, ?2)",
@@ -867,6 +926,86 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_pet_preferences(&self) -> rusqlite::Result<PetPreferences> {
+        let pet_enabled = self
+            .preference_value("pet_enabled")?
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let pet_name = self
+            .preference_value("pet_name")?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "Aura".into());
+        let pet_persona_prompt = self
+            .preference_value("pet_persona_prompt")?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| crate::DEFAULT_PET_PERSONA_PROMPT.into());
+        let pet_bubble_enabled = self
+            .preference_value("pet_bubble_enabled")?
+            .map(|value| value == "true")
+            .unwrap_or(true);
+        let proactive_ai_enabled = self
+            .preference_value("proactive_ai_enabled")?
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let idle_nudge_minutes = self
+            .preference_value("idle_nudge_minutes")?
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(30)
+            .clamp(5, 240);
+        let app_switch_nudge_enabled = self
+            .preference_value("app_switch_nudge_enabled")?
+            .map(|value| value == "true")
+            .unwrap_or(true);
+        let active_pet_id = self
+            .preference_value("active_pet_id")?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "default-aura".into());
+        let first_pet_enable_seen = self
+            .preference_value("first_pet_enable_seen")?
+            .map(|value| value == "true")
+            .unwrap_or(false);
+
+        Ok(PetPreferences {
+            pet_enabled,
+            pet_name,
+            pet_persona_prompt,
+            pet_bubble_enabled,
+            proactive_ai_enabled,
+            idle_nudge_minutes,
+            app_switch_nudge_enabled,
+            active_pet_id,
+            first_pet_enable_seen,
+        })
+    }
+
+    pub fn save_pet_preferences(&self, preferences: &PetPreferences) -> rusqlite::Result<()> {
+        self.set_preference_value("pet_enabled", bool_value(preferences.pet_enabled))?;
+        self.set_preference_value("pet_name", preferences.pet_name.trim())?;
+        self.set_preference_value("pet_persona_prompt", preferences.pet_persona_prompt.trim())?;
+        self.set_preference_value(
+            "pet_bubble_enabled",
+            bool_value(preferences.pet_bubble_enabled),
+        )?;
+        self.set_preference_value(
+            "proactive_ai_enabled",
+            bool_value(preferences.proactive_ai_enabled),
+        )?;
+        self.set_preference_value(
+            "idle_nudge_minutes",
+            &preferences.idle_nudge_minutes.clamp(5, 240).to_string(),
+        )?;
+        self.set_preference_value(
+            "app_switch_nudge_enabled",
+            bool_value(preferences.app_switch_nudge_enabled),
+        )?;
+        self.set_preference_value("active_pet_id", preferences.active_pet_id.trim())?;
+        self.set_preference_value(
+            "first_pet_enable_seen",
+            bool_value(preferences.first_pet_enable_seen),
+        )?;
+        Ok(())
+    }
+
     fn preference_value(&self, key: &str) -> rusqlite::Result<Option<String>> {
         self.conn
             .query_row(
@@ -894,6 +1033,25 @@ impl Database {
             params![event_type],
             |row| row.get(0),
         )
+    }
+}
+
+fn bool_value(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn normalize_emotion_db(value: &str) -> &'static str {
+    match value.trim() {
+        "studying" => "studying",
+        "thinking" => "thinking",
+        "happy" => "happy",
+        "nudge" => "nudge",
+        "ended" => "ended",
+        _ => "idle",
     }
 }
 
@@ -950,6 +1108,7 @@ mod tests {
             "daily_reports",
             "ai_settings",
             "chat_messages",
+            "aura_chat_messages",
             "app_preferences",
         ] {
             assert!(database
@@ -1347,6 +1506,33 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, "user");
         assert_eq!(messages[1].role, "assistant");
+    }
+
+    #[test]
+    fn stores_and_clears_aura_chat_messages() {
+        let database = Database::memory().expect("database should initialize");
+
+        database
+            .add_aura_chat_message("user", "你好", "unknown")
+            .expect("user aura message should save");
+        database
+            .add_aura_chat_message("assistant", "我在。", "happy")
+            .expect("assistant aura message should save");
+
+        let messages = database
+            .aura_chat_messages(20)
+            .expect("aura messages should load");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].emotion, "idle");
+        assert_eq!(messages[1].emotion, "happy");
+
+        database
+            .clear_aura_chat_messages()
+            .expect("aura messages should clear");
+        assert!(database
+            .aura_chat_messages(20)
+            .expect("aura messages should load")
+            .is_empty());
     }
 
     #[test]

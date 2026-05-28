@@ -12,8 +12,15 @@ body {
   background: #f7f4ee;
 }
 
+body:has(.pet-window) {
+  min-width: 0;
+  background: transparent;
+}
+
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -50,11 +57,178 @@ button:disabled {
     @apply block space-y-1 text-sm font-semibold text-ink/70;
   }
 
-  .field input {
+  .field input,
+  .field select {
     @apply h-10 w-full rounded-md border border-line bg-white px-3 text-sm font-normal text-ink outline-none focus:border-moss;
   }
 
   .chat-bubble {
     @apply max-w-[88%] rounded-md px-3 py-2 text-sm leading-6;
+  }
+
+  .settings-shell {
+    @apply flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-line bg-paper shadow-panel;
+  }
+
+  .settings-header {
+    @apply flex items-center justify-between border-b border-line bg-white/70 px-5 py-4;
+  }
+
+  .settings-body {
+    @apply grid min-h-0 flex-1 grid-cols-[190px_minmax(0,1fr)];
+  }
+
+  .settings-nav {
+    @apply border-r border-line bg-white/45 p-3;
+  }
+
+  .settings-nav-item {
+    @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-ink/65 transition-colors hover:bg-paper hover:text-ink;
+  }
+
+  .settings-nav-item-active {
+    @apply border border-line bg-paper text-ink shadow-sm;
+  }
+
+  .settings-content {
+    @apply flex min-h-0 flex-col;
+  }
+
+  .settings-content-head {
+    @apply border-b border-line px-5 py-4;
+  }
+
+  .settings-content-scroll {
+    @apply min-h-0 flex-1 space-y-4 overflow-y-auto p-5;
+  }
+
+  .settings-section {
+    @apply rounded-md border border-line bg-white/70 p-3;
+  }
+
+  .settings-section-title {
+    @apply text-sm font-semibold text-ink;
+  }
+
+  .settings-section-desc {
+    @apply mt-1 text-sm leading-6 text-ink/60;
+  }
+
+  .settings-row {
+    @apply flex items-center justify-between gap-4;
+  }
+
+  .settings-actions {
+    @apply flex flex-wrap justify-end gap-2;
+  }
+
+  .settings-check,
+  .settings-switch {
+    @apply flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold text-ink/70;
+  }
+
+  .settings-note {
+    @apply rounded-md border border-line bg-paper px-3 py-2 text-xs leading-5 text-ink/60;
+  }
+
+  .settings-status,
+  .settings-status-bar {
+    @apply rounded-md border border-moss/20 bg-moss/5 px-3 py-2 text-sm leading-5 text-moss;
+  }
+
+  .pet-window {
+    @apply relative flex h-screen w-screen select-none flex-col items-center justify-center overflow-hidden bg-transparent text-ink;
+    border: 0;
+    box-shadow: none;
+    gap: 4px;
+    outline: 0;
+    padding: 34px 32px 16px;
+  }
+
+  .pet-window-empty {
+    @apply pointer-events-none;
+  }
+
+  .pet-stage {
+    @apply grid h-[226px] w-[214px] cursor-grab place-items-center transition-transform duration-150 ease-out active:cursor-grabbing;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    outline: 0;
+    touch-action: none;
+  }
+
+  .pet-stage-dragging {
+    transform: translateY(-8px) rotate(-2deg) scale(1.035);
+  }
+
+  .pet-stage-dropped {
+    animation: aura-pet-drop 220ms cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+
+  .default-aura-pet {
+    @apply h-[156px] w-[156px];
+    filter: drop-shadow(0 8px 10px rgb(32 48 43 / 0.08));
+  }
+
+  .pet-sprite {
+    width: 192px;
+    height: 208px;
+    background-repeat: no-repeat;
+    background-size: 1536px 1872px;
+    background-position: 0 0;
+    border: 0;
+    box-shadow: none;
+    image-rendering: auto;
+    filter: drop-shadow(0 8px 10px rgb(32 48 43 / 0.08));
+    outline: 0;
+    transition:
+      filter 150ms ease,
+      transform 150ms ease;
+  }
+
+  .pet-sprite-static {
+    background-position: center;
+    background-size: contain;
+  }
+
+  .pet-sprite-dragging {
+    filter: drop-shadow(0 10px 12px rgb(32 48 43 / 0.1));
+  }
+
+  .pet-sprite-dropped {
+    filter: drop-shadow(0 8px 10px rgb(32 48 43 / 0.08));
+  }
+
+  .pet-bubble {
+    @apply max-h-[76px] w-[224px] overflow-hidden rounded-md bg-white/90 px-3 py-2 text-center text-sm leading-5 text-ink/80 shadow-lg transition-opacity;
+    border: 1px solid rgb(255 255 255 / 0.72);
+    backdrop-filter: blur(10px);
+  }
+
+  .pet-stage-dragging + .pet-bubble {
+    opacity: 0.55;
+  }
+
+  .pet-bubble-compact {
+    @apply text-xs;
+  }
+
+  .pet-close {
+    @apply absolute right-3 top-3 z-10 grid h-7 w-7 place-items-center rounded-full bg-white/70 text-ink/45 opacity-50 shadow-sm transition hover:text-tomato hover:opacity-100;
+    border: 1px solid rgb(255 255 255 / 0.62);
+    backdrop-filter: blur(8px);
+  }
+}
+
+@keyframes aura-pet-drop {
+  0% {
+    transform: translateY(-8px) rotate(-2deg) scale(1.035);
+  }
+  55% {
+    transform: translateY(3px) rotate(1deg) scale(0.985);
+  }
+  100% {
+    transform: translateY(0) rotate(0) scale(1);
   }
 }

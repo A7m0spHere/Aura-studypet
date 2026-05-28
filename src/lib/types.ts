@@ -64,6 +64,65 @@ export interface AppPreferences {
   activity_capture_enabled: boolean;
 }
 
+export interface PetPreferences {
+  pet_enabled: boolean;
+  pet_name: string;
+  pet_persona_prompt: string;
+  pet_bubble_enabled: boolean;
+  proactive_ai_enabled: boolean;
+  idle_nudge_minutes: number;
+  app_switch_nudge_enabled: boolean;
+  active_pet_id: string;
+  first_pet_enable_seen: boolean;
+}
+
+export interface PetProfile {
+  id: string;
+  display_name: string;
+  description: string;
+  spritesheet_path: string;
+  sprites: PetSpriteMap;
+  atlas?: PetAtlasMetadata | null;
+  persona?: string | null;
+  sprite_scale: number;
+  theme_color?: string | null;
+  default_emotion: PetEmotion;
+  bubble_lines: string[];
+}
+
+export interface PetAtlasMetadata {
+  columns: number;
+  row_count: number;
+  frame_width: number;
+  frame_height: number;
+  rows: number[][];
+}
+
+export type PetEmotion = "idle" | "studying" | "thinking" | "happy" | "nudge" | "ended";
+
+export type PetSpriteMap = Partial<Record<PetEmotion, string>>;
+
+export interface AuraReply {
+  message: string;
+  emotion: PetEmotion;
+  created_at: string;
+}
+
+export interface AuraChatMessage {
+  id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  emotion: PetEmotion;
+  created_at: string;
+}
+
+export interface ProactivePetNudge {
+  message: string;
+  emotion: PetEmotion;
+  event_type: "idle_app" | "app_switch";
+  created_at: string;
+}
+
 export interface AiSettingsInput {
   provider: "deepseek" | "custom";
   base_url: string;

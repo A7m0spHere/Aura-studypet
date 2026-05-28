@@ -1,16 +1,20 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type {
   AiSettingsInput,
   AiSettingsMasked,
   AiTestResult,
   AiModelList,
   AppPreferences,
+  AuraChatMessage,
   AiSummaryTone,
   ExportFormat,
   ChatMessage,
   DailyReport,
   DashboardState,
+  PetPreferences,
+  PetProfile,
   PomodoroState,
+  ProactivePetNudge,
   Session,
 } from "./types";
 
@@ -42,7 +46,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
     if (command === "get_current_status" || command === "get_today_dashboard") {
       return emptyDashboard as T;
     }
-    throw new Error("StudyPulse needs to run inside the Tauri desktop app for this action.");
+    throw new Error("Aura needs to run inside the Tauri desktop app for this action.");
   }
 
   return invoke<T>(command, args);
@@ -65,6 +69,9 @@ export const api = {
     call<string>("generate_ai_summary", { report_id: reportId, tone }),
   chatWithAi: (reportId: number, message: string) =>
     call<ChatMessage>("chat_with_ai", { report_id: reportId, message }),
+  chatWithAura: (message: string) => call<AuraChatMessage>("chat_with_aura", { message }),
+  getAuraChatHistory: () => call<AuraChatMessage[]>("get_aura_chat_history"),
+  clearAuraChatHistory: () => call<void>("clear_aura_chat_history"),
   getRecentReports: (limit = 30) => call<DailyReport[]>("get_recent_reports", { limit }),
   deleteDailyReport: (reportId: number) => call<void>("delete_daily_report", { report_id: reportId }),
   exportDailyReport: (reportId: number, format: ExportFormat) =>
@@ -75,7 +82,26 @@ export const api = {
   getAppPreferences: () => call<AppPreferences>("get_app_preferences"),
   saveAppPreferences: (preferences: AppPreferences) =>
     call<AppPreferences>("save_app_preferences", { preferences }),
+  getPetPreferences: () => call<PetPreferences>("get_pet_preferences"),
+  savePetPreferences: (preferences: PetPreferences) =>
+    call<PetPreferences>("save_pet_preferences", { preferences }),
+  showPetWindow: () => call<void>("show_pet_window"),
+  hidePetWindow: () => call<void>("hide_pet_window"),
+  dragPetWindow: () => call<void>("drag_pet_window"),
+  getPetLibraryDir: () => call<string>("get_pet_library_dir"),
+  openPetLibraryDir: () => call<void>("open_pet_library_dir"),
+  importPetProfile: (folderPath: string) =>
+    call<PetProfile>("import_pet_profile", { folder_path: folderPath }),
+  getPetProfiles: () => call<PetProfile[]>("get_pet_profiles"),
+  rescanPetProfiles: () => call<PetProfile[]>("rescan_pet_profiles"),
+  sendProactivePetNudge: (eventType: "idle_app" | "app_switch") =>
+    call<ProactivePetNudge>("send_proactive_pet_nudge", { event_type: eventType }),
 };
+
+export function petAssetUrl(path: string) {
+  if (!isTauriRuntime() || !path) return path;
+  return convertFileSrc(path);
+}
 
 export function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600);

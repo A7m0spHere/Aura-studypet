@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "StudyPulse",
+  "productName": "Aura",
   "version": "0.2.3",
-  "identifier": "com.studypulse.app",
+  "identifier": "com.aura.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,15 +12,34 @@
   "app": {
     "windows": [
       {
-        "title": "StudyPulse",
+        "title": "Aura",
         "width": 1180,
         "height": 780,
         "minWidth": 960,
         "minHeight": 680
+      },
+      {
+        "label": "pet",
+        "title": "Aura Pet",
+        "width": 300,
+        "height": 380,
+        "minWidth": 300,
+        "minHeight": 380,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**"]
+      }
     }
   },
   "bundle": {
