@@ -253,7 +253,7 @@ export function SettingsModal({
   const apiKeyPlaceholder = apiKeyPlaceholderFor(activeMasked);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
+    <div className="dialog-backdrop">
       <section className="settings-shell">
         <header className="settings-header">
           <div>
@@ -315,9 +315,9 @@ export function SettingsModal({
               {activeTab === "pet" ? <PetSettingsPanel /> : null}
 
               {activeTab === "ai" ? (
-                <div className="space-y-4">
+                <div className="settings-stack">
                   <SettingsSection title="供应商" description="DeepSeek 使用预设地址；自定义模式兼容 OpenAI 风格接口。">
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="settings-provider-grid">
                       <button
                         className={deepseek ? "primary-button" : "secondary-button"}
                         onClick={() => {
@@ -338,7 +338,7 @@ export function SettingsModal({
                       </button>
                     </div>
                     {custom ? (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                      <div className="settings-provider-row">
                         <select
                           className="h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-moss"
                           value={activeProvider}
@@ -372,7 +372,7 @@ export function SettingsModal({
                   </SettingsSection>
 
                   <SettingsSection title="连接参数">
-                    <div className="grid gap-3">
+                    <div className="settings-form-grid">
                       <label className="field">
                         <span>API URL (Base URL)</span>
                         <input
@@ -451,7 +451,7 @@ export function SettingsModal({
               ) : null}
 
               {activeTab === "privacy-data" ? (
-                <div className="space-y-4">
+                <div className="settings-stack">
                   <SettingsSection title="隐私边界">
                     <div className="settings-note">
                       AI 总结只会在你主动生成总结或继续聊天时，将本地日报摘要发送到当前选择的 API。API Key 不会以明文返回前端，也不会写入日志。

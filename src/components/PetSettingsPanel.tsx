@@ -117,14 +117,14 @@ export function PetSettingsPanel() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="settings-stack">
       <section className="settings-section">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h3 className="settings-section-title">桌宠模式</h3>
             <p className="settings-section-desc">桌宠是可选陪伴层，关闭后不影响学习记录、番茄钟和日报。</p>
           </div>
-          <label className="settings-switch">
+          <label className="settings-switch settings-switch-strong">
             <input
               checked={preferences.pet_enabled}
               disabled={busy || !profiles.length}
@@ -135,7 +135,7 @@ export function PetSettingsPanel() {
           </label>
         </div>
 
-        <div className="mt-3 grid gap-2 rounded-md border border-line bg-paper px-3 py-2 text-xs leading-5 text-ink/60">
+        <div className="settings-info-grid">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
               当前宠物：<strong className="font-semibold text-ink">{activeProfile?.display_name ?? "尚未导入宠物"}</strong>
@@ -146,7 +146,7 @@ export function PetSettingsPanel() {
           <p className="break-all">宠物库：{libraryDir || "正在读取..."}</p>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="settings-button-row">
           <button className="secondary-button" type="button" onClick={openLibraryDir}>
             <FolderOpen size={16} />
             打开宠物文件夹
@@ -168,7 +168,7 @@ export function PetSettingsPanel() {
 
       <section className="settings-section">
         <h3 className="settings-section-title">宠物与人格</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="settings-form-grid sm:grid-cols-2">
           <label className="field">
             <span>当前宠物</span>
             <select
@@ -206,7 +206,7 @@ export function PetSettingsPanel() {
 
       <section className="settings-section">
         <h3 className="settings-section-title">互动提醒</h3>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="settings-toggle-grid">
           <label className="settings-check">
             <input
               checked={preferences.pet_bubble_enabled}
@@ -252,7 +252,7 @@ export function PetSettingsPanel() {
           />
         </label>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="settings-form-grid mt-3 sm:grid-cols-2">
           <label className="settings-check">
             <input
               checked={preferences.pet_always_on_top}
