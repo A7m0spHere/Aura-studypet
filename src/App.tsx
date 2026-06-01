@@ -416,6 +416,7 @@ export default function App() {
               : "把计时、活动观察、复盘和桌宠陪伴放在同一个安静工作台里。"}
           </p>
         </div>
+        <div className="command-visual" aria-hidden="true" />
         <div className="command-metrics">
           <div>
             <span>今日总览</span>
