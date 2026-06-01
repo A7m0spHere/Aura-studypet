@@ -1,6 +1,5 @@
 import {
   Activity,
-  ChevronDown,
   Clock3,
   Coffee,
   Eye,
@@ -16,7 +15,6 @@ import {
 } from "lucide-react";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -28,6 +26,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { HistoryDialog, PrivacyDialog } from "./components/DashboardDialogs";
+import { AuraMark, FoldPanel, MetricTile } from "./components/DashboardUi";
 import { SettingsModal } from "./components/SettingsModal";
 import { api, formatDuration } from "./lib/api";
 import { DEFAULT_APP_PREFERENCES, DEFAULT_PET_PREFERENCES } from "./lib/defaults";
@@ -62,40 +62,6 @@ function statusLabel(status?: string) {
   if (status === "studying") return "专注中";
   if (status === "ended") return "已结束";
   return "待开始";
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-  }).format(date);
-}
-
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function groupReportsByDate(reports: DailyReport[]) {
-  const groups = new Map<string, DailyReport[]>();
-  for (const report of reports) {
-    const key = formatDate(report.ended_at || report.started_at);
-    groups.set(key, [...(groups.get(key) ?? []), report]);
-  }
-  return Array.from(groups.entries());
-}
-
-function summaryExcerpt(summary: string) {
-  const compact = summary.replace(/\s+/g, " ").trim();
-  return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
 }
 
 function isTauriRuntime() {
@@ -765,210 +731,5 @@ export default function App() {
         }}
       />
     </main>
-  );
-}
-
-function MetricTile({ label, value, hint, icon }: { label: string; value: string; hint: string; icon: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-line bg-white/85 p-4 shadow-panel">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">{label}</p>
-          <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
-          <p className="mt-1 truncate text-sm text-ink/55">{hint}</p>
-        </div>
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-paper text-moss">{icon}</div>
-      </div>
-    </section>
-  );
-}
-
-function FoldPanel({
-  title,
-  defaultOpen,
-  tone = "default",
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  tone?: "default" | "moss";
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(Boolean(defaultOpen));
-
-  return (
-    <details className={tone === "moss" ? "fold-panel fold-panel-moss" : "fold-panel"} open={open}>
-      <summary
-        className="fold-panel-summary"
-        onClick={(event) => {
-          event.preventDefault();
-          setOpen((current) => !current);
-        }}
-      >
-        <span>{title}</span>
-        <ChevronDown size={17} />
-      </summary>
-      <div className="fold-panel-body">{children}</div>
-    </details>
-  );
-}
-
-function HistoryDialog({
-  reports,
-  onClose,
-  onRefresh,
-  onDelete,
-  onExport,
-}: {
-  reports: DailyReport[];
-  onClose: () => void;
-  onRefresh: () => void;
-  onDelete: (reportId: number) => void;
-  onExport: (reportId: number, format: ExportFormat) => void;
-}) {
-  const grouped = groupReportsByDate(reports);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
-      <section className="max-h-[82vh] w-full max-w-3xl overflow-hidden rounded-lg border border-line bg-paper shadow-panel">
-        <header className="flex items-center justify-between border-b border-line px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold">历史日报</h2>
-            <p className="text-sm text-ink/60">按日期归档最近 30 条本地记录</p>
-          </div>
-          <div className="flex gap-2">
-            <button className="secondary-button" onClick={onRefresh}>
-              刷新
-            </button>
-            <button className="secondary-button" onClick={onClose}>
-              关闭
-            </button>
-          </div>
-        </header>
-        <div className="max-h-[64vh] space-y-3 overflow-auto p-5">
-          {grouped.length ? (
-            grouped.map(([dateLabel, items]) => (
-              <section className="space-y-3" key={dateLabel}>
-                <h3 className="text-sm font-semibold text-ink/70">{dateLabel}</h3>
-                {items.map((report) => (
-                  <article className="rounded-lg border border-line bg-white p-4" key={report.id}>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h4 className="font-semibold">专注日报</h4>
-                        <p className="text-sm text-ink/60">
-                          {formatTime(report.started_at)} - {formatTime(report.ended_at)}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="rounded-md bg-paper px-2 py-1">记录 {formatDuration(report.total_seconds)}</span>
-                        <span className="rounded-md bg-paper px-2 py-1">专注 {report.focus_score}</span>
-                        <span className="rounded-md bg-paper px-2 py-1">番茄 {report.pomodoro_completed}</span>
-                        <button className="secondary-button px-2 py-1 text-xs" onClick={() => onExport(report.id, "markdown")} type="button">
-                          导出 MD
-                        </button>
-                        <button className="secondary-button px-2 py-1 text-xs" onClick={() => onExport(report.id, "txt")} type="button">
-                          导出 TXT
-                        </button>
-                        <button className="danger-button px-2 py-1 text-xs" onClick={() => onDelete(report.id)} type="button">
-                          <Trash2 size={14} />
-                          删除
-                        </button>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-sm text-ink/70">
-                      Top 应用：
-                      {report.app_usage.length
-                        ? report.app_usage
-                            .slice(0, 3)
-                            .map((item) => `${item.app_name} ${formatDuration(item.seconds)}`)
-                            .join("、")
-                        : "暂无采样数据"}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-ink/75">
-                      {report.ai_summary ? summaryExcerpt(report.ai_summary) : "尚未生成 AI 总结。"}
-                    </p>
-                  </article>
-                ))}
-              </section>
-            ))
-          ) : (
-            <p className="rounded-md border border-line bg-white p-4 text-sm text-ink/60">
-              还没有历史日报。结束一次专注记录后，这里会自动出现记录。
-            </p>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function AuraMark() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true" className="h-6 w-6">
-      <circle cx="16" cy="17" r="11" fill="currentColor" opacity="0.96" />
-      <path d="M12 7.5c1.2-2 3.1-2.8 5.2-2.2" fill="none" stroke="#2f6f5e" strokeWidth="3" strokeLinecap="round" />
-      <path
-        d="M7.5 17.5h5l2.1-4.2 3.3 8.1 2.5-5.2h4.1"
-        fill="none"
-        stroke="#f6f1e9"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M16 11.2v5.5l3.5 2.3" fill="none" stroke="#20302b" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PrivacyDialog({
-  accepted,
-  onAccept,
-  onClose,
-}: {
-  accepted: boolean;
-  onAccept: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
-      <section className="w-full max-w-2xl rounded-lg border border-line bg-paper shadow-panel">
-        <header className="border-b border-line px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-moss text-white">
-              <ShieldCheck size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">隐私说明</h2>
-              <p className="text-sm text-ink/60">第一次使用前建议先看完这段说明</p>
-            </div>
-          </div>
-        </header>
-        <div className="space-y-3 p-5 text-sm leading-6 text-ink/75">
-          <p>Aura 会在专注/工作记录中统计当前前台应用、窗口标题、应用使用时长和键鼠活跃数量。</p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>不记录具体按键，也不记录输入内容。</li>
-            <li>不记录鼠标坐标，不截图，不录屏。</li>
-            <li>数据默认保存在本机 SQLite 数据库。</li>
-            <li>只有主动生成 AI 总结、继续聊天，或你启用桌宠主动 AI 关心时，摘要数据才会发送到你配置的 API。</li>
-          </ul>
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-5 py-4">
-          {accepted ? (
-            <button className="secondary-button" onClick={onClose}>
-              关闭
-            </button>
-          ) : (
-            <>
-              <button className="secondary-button" onClick={onClose}>
-                稍后再看
-              </button>
-              <button className="primary-button" onClick={onAccept}>
-                我知道了
-              </button>
-            </>
-          )}
-        </footer>
-      </section>
-    </div>
   );
 }
