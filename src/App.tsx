@@ -406,35 +406,33 @@ export default function App() {
         </div>
       </header>
 
-      <section className="command-center">
-        <div className="command-copy">
-          <p className="command-kicker">Focus workspace</p>
-          <h2>{isStudying ? "Aura 正在记录这段专注" : "准备好时，开启一段新的节奏"}</h2>
-          <p>
-            {isStudying
-              ? `当前会话已持续 ${formatDuration(dashboard?.current_session_seconds ?? 0)}，保持稳定推进。`
-              : "把计时、活动观察、复盘和桌宠陪伴放在同一个安静工作台里。"}
-          </p>
-        </div>
-        <div className="command-visual" aria-hidden="true" />
-        <div className="command-metrics">
-          <div>
-            <span>今日总览</span>
-            <strong>{formatDuration(dashboard?.today_study_seconds ?? 0)}</strong>
+      <div className="workspace-shell">
+        <aside className="workspace-rail">
+          <div className="rail-brand">
+            <div className="brand-mark">
+              <AuraMark />
+            </div>
+            <div className="min-w-0">
+              <p className="panel-eyebrow">Focus workspace</p>
+              <h2>{isStudying ? "Aura 正在记录这段专注" : "准备好时，开启一段新的节奏"}</h2>
+            </div>
           </div>
-          <div>
-            <span>专注度</span>
-            <strong>{focusScore}</strong>
-          </div>
-          <div>
-            <span>当前窗口</span>
-            <strong>{currentApp}</strong>
-          </div>
-        </div>
-      </section>
 
-      <div className="dashboard-grid">
-        <section className="workspace-column workspace-column-control">
+          <div className="rail-summary">
+            <div>
+              <span>今日总览</span>
+              <strong>{formatDuration(dashboard?.today_study_seconds ?? 0)}</strong>
+            </div>
+            <div>
+              <span>专注指数</span>
+              <strong>{focusScore}</strong>
+            </div>
+            <div>
+              <span>活跃信号</span>
+              <strong>{totalActivity} 次</strong>
+            </div>
+          </div>
+
           <section className="workspace-panel focus-console">
             <div className="panel-head">
               <div>
@@ -523,10 +521,27 @@ export default function App() {
               </button>
             </div>
           </section>
-        </section>
 
-        <section className="workspace-column workspace-column-data">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="rail-actions">
+            <button
+              className="secondary-button justify-center"
+              onClick={() => {
+                setHistoryOpen(true);
+                loadReports();
+              }}
+            >
+              <History size={16} />
+              日报
+            </button>
+            <button className="secondary-button justify-center" onClick={() => setSettingsOpen(true)}>
+              <Settings size={16} />
+              工作台设置
+            </button>
+          </div>
+        </aside>
+
+        <section className="workspace-main">
+          <div className="metric-strip">
             <MetricTile
               label="今日累计"
               value={formatDuration(dashboard?.today_study_seconds ?? 0)}
@@ -542,173 +557,177 @@ export default function App() {
             />
           </div>
 
-          <section className="chart-panel chart-panel-large">
-            <div className="chart-head">
-              <div>
-                <p className="panel-eyebrow">Live signal</p>
-                <h2>实时观察</h2>
-                <p className="text-sm text-ink/60">键鼠活跃趋势</p>
+          <div className="insight-grid">
+            <section className="chart-panel chart-panel-large">
+              <div className="chart-head">
+                <div>
+                  <p className="panel-eyebrow">Live signal</p>
+                  <h2>实时观察</h2>
+                  <p className="text-sm text-ink/60">键鼠活跃趋势</p>
+                </div>
+                <span className="state-chip">最近采样</span>
               </div>
-              <span className="state-chip">最近采样</span>
-            </div>
-            <div className="chart-frame h-64 min-h-64">
-              <ResponsiveContainer width="100%" height="100%" minWidth={240} minHeight={220}>
-                <LineChart data={activityData}>
-                  <CartesianGrid stroke="#ebe5da" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="keyboard" stroke="#2f6f5e" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="mouse" stroke="#d94c3d" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
-
-          <section className="chart-panel">
-            <div className="chart-head">
-              <div>
-                <p className="panel-eyebrow">App distribution</p>
-                <h2>应用排行</h2>
-                <p className="text-sm text-ink/60">这段时间主要停留在哪里</p>
-              </div>
-              <span className="state-chip">Top {topApps.length}</span>
-            </div>
-            {topApps.length ? (
-              <div className="chart-frame h-56 min-h-56">
-                <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={210}>
-                  <BarChart data={topApps} layout="vertical" margin={{ left: 12, right: 16 }}>
-                    <CartesianGrid stroke="#ebe5da" horizontal={false} />
-                    <XAxis type="number" tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`} />
-                    <YAxis dataKey="app_name" type="category" width={92} tick={{ fontSize: 12 }} />
-                    <Tooltip formatter={(value) => formatDuration(Number(value))} />
-                    <Bar dataKey="seconds" fill="#2f6f5e" radius={[0, 4, 4, 0]} />
-                  </BarChart>
+              <div className="chart-frame h-64 min-h-64">
+                <ResponsiveContainer width="100%" height="100%" minWidth={240} minHeight={220}>
+                  <LineChart data={activityData}>
+                    <CartesianGrid stroke="#ebe5da" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="keyboard" stroke="#2f6f5e" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="mouse" stroke="#d94c3d" strokeWidth={2} dot={false} />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
-            ) : (
-              <p className="empty-panel">
-                开始专注并切换几个窗口后，这里会显示应用使用时长排行。
-              </p>
-            )}
-          </section>
-        </section>
+            </section>
 
-        <aside className="workspace-column workspace-column-review">
-          <section className="review-panel">
-            <div className="panel-head">
-              <div>
-                <p className="panel-eyebrow">Review</p>
-                <h2>复盘</h2>
-                <p className="text-sm text-ink/60">结束一次记录后生成总结</p>
+            <section className="review-panel">
+              <div className="panel-head">
+                <div>
+                  <p className="panel-eyebrow">Review</p>
+                  <h2>复盘</h2>
+                  <p className="text-sm text-ink/60">结束一次记录后生成总结</p>
+                </div>
+                <MessageSquareText className="text-moss" size={20} />
               </div>
-              <MessageSquareText className="text-moss" size={20} />
-            </div>
-            <div className="review-toolbar">
-              <label className="field">
-                <span>总结语气</span>
-                <select
-                  value={preferences.ai_summary_tone}
-                  onChange={(event) => savePreferences({ ...preferences, ai_summary_tone: event.target.value as AiSummaryTone })}
-                >
-                  {Object.entries(toneLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button className="primary-button justify-center" disabled={busy || !reportId} onClick={generateSummary}>
-                {busy ? "处理中..." : "生成 AI 总结"}
-              </button>
-            </div>
-            <div className="review-summary">
-              {aiSummary || "还没有总结。结束一次专注记录后，可以生成本地日报和 AI 反馈。"}
-            </div>
-            <div className="review-thread">
-              {messages.length ? (
-                messages.map((message) => (
-                  <p
-                    className={message.role === "user" ? "chat-bubble ml-auto bg-moss text-white" : "chat-bubble bg-paper text-ink"}
-                    key={message.id}
+              <div className="review-toolbar">
+                <label className="field">
+                  <span>总结语气</span>
+                  <select
+                    value={preferences.ai_summary_tone}
+                    onChange={(event) => savePreferences({ ...preferences, ai_summary_tone: event.target.value as AiSummaryTone })}
                   >
-                    {message.content}
-                  </p>
-                ))
+                    {Object.entries(toneLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="primary-button justify-center" disabled={busy || !reportId} onClick={generateSummary}>
+                  {busy ? "处理中..." : "生成 AI 总结"}
+                </button>
+              </div>
+              <div className="review-summary">
+                {aiSummary || "还没有总结。结束一次专注记录后，可以生成本地日报和 AI 反馈。"}
+              </div>
+              <div className="review-thread">
+                {messages.length ? (
+                  messages.map((message) => (
+                    <p
+                      className={message.role === "user" ? "chat-bubble ml-auto bg-moss text-white" : "chat-bubble bg-paper text-ink"}
+                      key={message.id}
+                    >
+                      {message.content}
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-sm text-ink/50">生成总结后，可以继续追问这次复盘。</p>
+                )}
+              </div>
+              <div className="input-row">
+                <input
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  placeholder="继续追问这次复盘"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") sendChat();
+                  }}
+                />
+                <button className="secondary-button" disabled={!reportId || busy} onClick={sendChat}>
+                  发送
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <div className="lower-grid">
+            <section className="chart-panel">
+              <div className="chart-head">
+                <div>
+                  <p className="panel-eyebrow">App distribution</p>
+                  <h2>应用排行</h2>
+                  <p className="text-sm text-ink/60">这段时间主要停留在哪里</p>
+                </div>
+                <span className="state-chip">Top {topApps.length}</span>
+              </div>
+              {topApps.length ? (
+                <div className="chart-frame h-56 min-h-56">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={210}>
+                    <BarChart data={topApps} layout="vertical" margin={{ left: 12, right: 16 }}>
+                      <CartesianGrid stroke="#ebe5da" horizontal={false} />
+                      <XAxis type="number" tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`} />
+                      <YAxis dataKey="app_name" type="category" width={92} tick={{ fontSize: 12 }} />
+                      <Tooltip formatter={(value) => formatDuration(Number(value))} />
+                      <Bar dataKey="seconds" fill="#2f6f5e" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
-                <p className="text-sm text-ink/50">生成总结后，可以继续追问这次复盘。</p>
+                <p className="empty-panel">
+                  开始专注并切换几个窗口后，这里会显示应用使用时长排行。
+                </p>
               )}
-            </div>
-            <div className="input-row">
-              <input
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                placeholder="继续追问这次复盘"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") sendChat();
-                }}
-              />
-              <button className="secondary-button" disabled={!reportId || busy} onClick={sendChat}>
-                发送
-              </button>
-            </div>
-          </section>
+            </section>
 
-          <section className="side-entry side-entry-chat">
-            <div className="side-entry-head">
-              <div>
-                <p className="panel-eyebrow">Aura chat</p>
-                <h2>和 Aura 对话</h2>
-              </div>
-              <button className="icon-button compact-icon" onClick={clearAuraChat} aria-label="清空 Aura 对话">
-                <Trash2 size={15} />
-              </button>
-            </div>
-            <div className="side-entry-message">
-              {latestAuraReply?.content || "可以直接和 Aura 说一句，她会结合当前状态回应，并同步桌宠表情。"}
-            </div>
-            <div className="input-row compact-input-row">
-              <input
-                value={auraInput}
-                onChange={(event) => setAuraInput(event.target.value)}
-                placeholder="和 Aura 说点什么"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") sendAuraChat();
-                }}
-              />
-              <button className="secondary-button" disabled={busy || !auraInput.trim()} onClick={sendAuraChat}>
-                发送
-              </button>
-            </div>
-          </section>
+            <div className="assistant-dock">
+              <section className="side-entry side-entry-chat">
+                <div className="side-entry-head">
+                  <div>
+                    <p className="panel-eyebrow">Aura chat</p>
+                    <h2>和 Aura 对话</h2>
+                  </div>
+                  <button className="icon-button compact-icon" onClick={clearAuraChat} aria-label="清空 Aura 对话">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                <div className="side-entry-message">
+                  {latestAuraReply?.content || "可以直接和 Aura 说一句，她会结合当前状态回应，并同步桌宠表情。"}
+                </div>
+                <div className="input-row compact-input-row">
+                  <input
+                    value={auraInput}
+                    onChange={(event) => setAuraInput(event.target.value)}
+                    placeholder="和 Aura 说点什么"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") sendAuraChat();
+                    }}
+                  />
+                  <button className="secondary-button" disabled={busy || !auraInput.trim()} onClick={sendAuraChat}>
+                    发送
+                  </button>
+                </div>
+              </section>
 
-          <section className="side-entry side-entry-pet">
-            <div className="side-entry-head">
-              <div>
-                <p className="panel-eyebrow">Aura dock</p>
-                <h2>桌宠陪伴</h2>
-                <p>{petStatus} · {petPreferences.pet_name || "未选择宠物"}</p>
-              </div>
-              <MessageSquareText size={20} />
+              <section className="side-entry side-entry-pet">
+                <div className="side-entry-head">
+                  <div>
+                    <p className="panel-eyebrow">Aura dock</p>
+                    <h2>桌宠陪伴</h2>
+                    <p>{petStatus} · {petPreferences.pet_name || "未选择宠物"}</p>
+                  </div>
+                  <MessageSquareText size={20} />
+                </div>
+                <div className="side-actions">
+                  <button className="secondary-button justify-center" disabled={!petPreferences.pet_enabled} onClick={() => api.showPetWindow()}>
+                    <Eye size={16} />
+                    显示桌宠
+                  </button>
+                  <button
+                    className="secondary-button justify-center"
+                    onClick={() => {
+                      setSettingsTab("pet");
+                      setSettingsOpen(true);
+                    }}
+                  >
+                    <Settings size={16} />
+                    桌宠设置
+                  </button>
+                </div>
+              </section>
             </div>
-            <div className="side-actions">
-              <button className="secondary-button justify-center" disabled={!petPreferences.pet_enabled} onClick={() => api.showPetWindow()}>
-                <Eye size={16} />
-                显示桌宠
-              </button>
-              <button
-                className="secondary-button justify-center"
-                onClick={() => {
-                  setSettingsTab("pet");
-                  setSettingsOpen(true);
-                }}
-              >
-                <Settings size={16} />
-                桌宠设置
-              </button>
-            </div>
-          </section>
-        </aside>
+          </div>
+        </section>
       </div>
 
       {historyOpen ? (

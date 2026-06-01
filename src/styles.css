@@ -45,16 +45,16 @@ button:disabled {
   .app-shell::before {
     content: "";
     position: fixed;
-    inset: 64px 0 auto auto;
-    width: min(62vw, 900px);
-    height: min(48vw, 500px);
+    inset: auto auto -120px -120px;
+    width: min(42vw, 560px);
+    height: min(42vw, 560px);
     background-image: url("./assets/aura-brand-visual.png");
     background-size: cover;
     background-position: center;
-    opacity: 0.32;
+    opacity: 0.1;
     pointer-events: none;
     mix-blend-mode: multiply;
-    mask-image: linear-gradient(90deg, transparent 0%, black 24%, black 78%, transparent 100%);
+    mask-image: radial-gradient(circle, black 0%, black 38%, transparent 72%);
   }
 
   .app-shell > * {
@@ -78,8 +78,8 @@ button:disabled {
     @apply px-2 py-1 text-xs;
   }
 
-  .dashboard-grid {
-    @apply grid gap-5 px-6 pb-6 xl:grid-cols-[340px_minmax(460px,1fr)_390px];
+  .workspace-shell {
+    @apply grid min-h-[calc(100vh-73px)] gap-5 px-6 py-6 xl:grid-cols-[360px_minmax(0,1fr)];
   }
 
   .command-center {
@@ -132,6 +132,79 @@ button:disabled {
 
   .command-metrics strong {
     @apply min-w-0 truncate text-right text-lg font-semibold text-ink;
+  }
+
+  .workspace-rail {
+    @apply sticky top-[96px] z-10 h-[calc(100vh-120px)] min-h-[680px] overflow-hidden rounded-lg border border-line bg-surface/90 p-5 shadow-panel shadow-inset;
+  }
+
+  .workspace-rail::before {
+    content: "";
+    position: absolute;
+    inset: auto -88px -92px -72px;
+    height: 310px;
+    background-image:
+      linear-gradient(180deg, rgb(251 252 248 / 0), rgb(251 252 248 / 0.88) 62%),
+      url("./assets/aura-brand-visual.png");
+    background-size: cover;
+    background-position: center;
+    opacity: 0.28;
+    pointer-events: none;
+    mix-blend-mode: multiply;
+    mask-image: radial-gradient(circle at 48% 58%, black 0%, black 46%, transparent 76%);
+  }
+
+  .workspace-rail > * {
+    position: relative;
+  }
+
+  .rail-brand {
+    @apply flex min-w-0 items-start gap-3 border-b border-line pb-4;
+  }
+
+  .rail-brand h2 {
+    @apply mt-2 text-2xl font-semibold leading-tight text-ink;
+    text-wrap: balance;
+  }
+
+  .rail-summary {
+    @apply my-4 grid gap-px overflow-hidden rounded-md border border-line bg-line/80 p-px shadow-inset;
+  }
+
+  .rail-summary > div {
+    @apply flex min-w-0 items-center justify-between gap-3 bg-surface/90 px-3 py-2.5;
+  }
+
+  .rail-summary span {
+    @apply text-xs font-semibold uppercase tracking-[0.12em] text-ink/45;
+  }
+
+  .rail-summary strong {
+    @apply min-w-0 truncate text-right text-base font-semibold text-ink;
+  }
+
+  .rail-actions {
+    @apply mt-4 grid grid-cols-2 gap-2;
+  }
+
+  .workspace-main {
+    @apply min-w-0 space-y-5;
+  }
+
+  .metric-strip {
+    @apply grid gap-3 md:grid-cols-3;
+  }
+
+  .insight-grid {
+    @apply grid items-start gap-5 2xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)];
+  }
+
+  .lower-grid {
+    @apply grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_390px];
+  }
+
+  .assistant-dock {
+    @apply grid gap-5;
   }
 
   .workspace-column {
@@ -260,7 +333,7 @@ button:disabled {
   }
 
   .review-summary {
-    @apply mt-4 min-h-36 rounded-md border border-line bg-paper p-4 text-sm leading-6 text-ink/75 shadow-inset;
+    @apply mt-4 min-h-40 rounded-md border border-line bg-paper p-4 text-sm leading-6 text-ink/75 shadow-inset;
   }
 
   .review-thread {
@@ -718,6 +791,42 @@ button:disabled {
 
   .pet-menu-danger .pet-menu-icon {
     @apply text-tomato;
+  }
+}
+
+@media (max-width: 1279px) {
+  .workspace-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-rail {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: 0;
+  }
+
+  .rail-summary,
+  .rail-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  body {
+    min-width: 0;
+  }
+
+  .workspace-shell {
+    padding-inline: 16px;
+  }
+
+  .rail-summary,
+  .rail-actions,
+  .metric-strip,
+  .insight-grid,
+  .lower-grid {
+    grid-template-columns: 1fr;
   }
 }
 
