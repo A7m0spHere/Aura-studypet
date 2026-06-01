@@ -79,7 +79,7 @@ button:disabled {
   }
 
   .workspace-shell {
-    @apply grid min-h-[calc(100vh-73px)] gap-5 px-6 py-6 xl:grid-cols-[360px_minmax(0,1fr)];
+    @apply grid min-h-[calc(100vh-73px)] grid-cols-[320px_minmax(0,1fr)] gap-5 px-6 py-6 2xl:grid-cols-[360px_minmax(0,1fr)];
   }
 
   .command-center {
@@ -794,7 +794,7 @@ button:disabled {
   }
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 920px) {
   .workspace-shell {
     grid-template-columns: 1fr;
   }
