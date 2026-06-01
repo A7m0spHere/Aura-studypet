@@ -441,7 +441,9 @@ export default function App() {
                 <p className="panel-eyebrow">Focus console</p>
                 <h2>专注计时</h2>
               </div>
-              <span className={isStudying ? "state-chip state-chip-live" : "state-chip"}>{statusLabel(dashboard?.session_status)}</span>
+              <span className={isStudying ? "state-chip state-chip-live" : "state-chip"}>
+                {isStudying ? "会话记录中" : "会话待命"}
+              </span>
             </div>
             <div className="focus-time">{formatDuration(dashboard?.current_session_seconds ?? 0)}</div>
             <p className="focus-note">{isStudying ? "Aura 正在记录这段专注，保持当前节奏。" : "准备好时，直接开始一段新的专注记录。"}</p>
@@ -617,7 +619,7 @@ export default function App() {
                 </select>
               </label>
               <button className="primary-button justify-center" disabled={busy || !reportId} onClick={generateSummary}>
-                {busy ? "处理中..." : "生成总结"}
+                {busy ? "处理中..." : "生成 AI 总结"}
               </button>
             </div>
             <div className="review-summary">
