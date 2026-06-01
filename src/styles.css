@@ -38,8 +38,8 @@ button:disabled {
   .app-shell {
     @apply relative min-h-screen overflow-hidden bg-paper text-ink;
     background:
-      radial-gradient(circle at 82% 10%, rgb(47 111 94 / 0.1), transparent 28rem),
-      linear-gradient(180deg, #f8faf5 0%, #eef2ec 100%);
+      radial-gradient(circle at 82% 8%, rgb(47 111 94 / 0.06), transparent 28rem),
+      linear-gradient(180deg, #fbfcf8 0%, #f4f6f2 100%);
   }
 
   .app-shell::before {
@@ -62,7 +62,7 @@ button:disabled {
   }
 
   .app-header {
-    @apply sticky top-0 z-30 flex items-center justify-between border-b border-line bg-surface/90 px-6 py-4 shadow-inset backdrop-blur-xl;
+    @apply sticky top-0 z-30 flex items-center justify-between border-b border-line bg-surface/90 px-6 py-3 shadow-inset backdrop-blur-xl;
   }
 
   .brand-mark {
@@ -76,6 +76,184 @@ button:disabled {
 
   .quiet-pill {
     @apply px-2 py-1 text-xs;
+  }
+
+  .console-shell {
+    @apply grid min-h-[calc(100vh-65px)] grid-cols-[296px_minmax(0,1fr)];
+  }
+
+  .console-sidebar {
+    @apply sticky top-[65px] flex h-[calc(100vh-65px)] min-h-[640px] flex-col border-r border-line bg-surface/80 px-5 py-5;
+  }
+
+  .console-logo {
+    @apply flex items-center gap-3 border-b border-line pb-5;
+  }
+
+  .console-logo-title {
+    @apply text-xl font-semibold leading-6 text-ink;
+  }
+
+  .console-logo p {
+    @apply mt-1 text-xs text-ink/50;
+  }
+
+  .console-nav {
+    @apply mt-4 grid gap-1;
+  }
+
+  .console-nav-item {
+    @apply flex h-12 w-full items-center gap-3 rounded-lg border border-transparent px-4 text-left text-[15px] font-semibold text-ink/70 transition-colors hover:bg-surface-strong hover:text-ink;
+  }
+
+  .console-nav-item svg {
+    @apply shrink-0 text-ink/40;
+  }
+
+  .console-nav-item-active {
+    @apply bg-white text-ink shadow-inset;
+  }
+
+  .console-nav-item-active svg {
+    @apply text-moss;
+  }
+
+  .console-sidebar-footer {
+    @apply mt-auto grid gap-2 border-t border-line pt-4 text-xs leading-5 text-ink/50;
+  }
+
+  .console-sidebar-footer p {
+    @apply font-semibold text-ink/60;
+  }
+
+  .console-sidebar-footer button {
+    @apply inline-flex items-center gap-2 text-left font-semibold text-moss hover:text-ink;
+  }
+
+  .console-main {
+    @apply min-w-0 overflow-auto px-12 py-10;
+  }
+
+  .console-page {
+    @apply relative max-w-[1120px] pb-12;
+  }
+
+  .console-page-head {
+    @apply mb-10;
+  }
+
+  .console-page-head h2 {
+    @apply mt-2 text-3xl font-semibold tracking-normal text-ink;
+  }
+
+  .console-page-head p:not(.panel-eyebrow) {
+    @apply mt-8 max-w-3xl text-base leading-7 text-ink/70;
+  }
+
+  .console-page-overview::after,
+  .console-page-pet::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 48px;
+    width: 280px;
+    height: 210px;
+    background-image: url("./assets/aura-brand-visual.png");
+    background-size: cover;
+    background-position: center;
+    opacity: 0.08;
+    pointer-events: none;
+    mix-blend-mode: multiply;
+    mask-image: radial-gradient(circle, black 0%, transparent 72%);
+  }
+
+  .console-metrics {
+    @apply mb-10 grid gap-8 md:grid-cols-3;
+  }
+
+  .console-metrics .metric-tile {
+    @apply border-0 bg-transparent p-0 shadow-none;
+  }
+
+  .console-metrics .metric-icon {
+    @apply bg-surface/80;
+  }
+
+  .console-metrics .metric-value {
+    @apply text-4xl;
+  }
+
+  .console-split {
+    @apply mb-10 grid gap-10 lg:grid-cols-2;
+  }
+
+  .console-section {
+    @apply min-w-0 border-t border-line pt-6;
+  }
+
+  .console-section-soft {
+    @apply rounded-xl border border-line bg-surface/70 p-5 shadow-inset;
+  }
+
+  .console-section-head {
+    @apply mb-4 flex min-w-0 items-start justify-between gap-5;
+  }
+
+  .console-section-head h3 {
+    @apply text-xl font-semibold leading-7 text-ink;
+  }
+
+  .console-section-head p {
+    @apply mt-1 max-w-2xl text-sm leading-6 text-ink/60;
+  }
+
+  .console-focus-time {
+    @apply mt-4 text-6xl font-semibold leading-none text-ink;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .console-focus-time-lg {
+    @apply text-7xl;
+  }
+
+  .console-current-app {
+    @apply mt-6 flex min-w-0 items-center gap-3 rounded-lg border border-line bg-surface/70 px-4 py-3 text-sm shadow-inset;
+  }
+
+  .console-current-app svg {
+    @apply shrink-0 text-moss;
+  }
+
+  .console-current-app p {
+    @apply truncate font-semibold text-ink;
+  }
+
+  .console-current-app span {
+    @apply block truncate text-ink/55;
+  }
+
+  .console-actions {
+    @apply mt-5 flex flex-wrap gap-2;
+  }
+
+  .console-chart-sm {
+    @apply h-56 min-h-56;
+  }
+
+  .console-chart-lg {
+    @apply h-[430px] min-h-[430px];
+  }
+
+  .console-readable {
+    @apply max-w-3xl;
+  }
+
+  .console-chat-log {
+    @apply min-h-80 space-y-2 rounded-lg border border-line bg-surface/60 p-4 shadow-inset;
+  }
+
+  .console-focus-layout {
+    @apply grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px];
   }
 
   .workspace-shell {
@@ -795,6 +973,31 @@ button:disabled {
 }
 
 @media (max-width: 920px) {
+  .console-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .console-sidebar {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid #d9ded6;
+  }
+
+  .console-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .console-sidebar-footer {
+    margin-top: 16px;
+  }
+
+  .console-main {
+    padding: 28px 16px;
+  }
+
   .workspace-shell {
     grid-template-columns: 1fr;
   }
