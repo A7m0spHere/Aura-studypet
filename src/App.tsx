@@ -406,6 +406,32 @@ export default function App() {
         </div>
       </header>
 
+      <section className="command-center">
+        <div className="command-copy">
+          <p className="command-kicker">Focus workspace</p>
+          <h2>{isStudying ? "Aura 正在记录这段专注" : "准备好时，开启一段新的节奏"}</h2>
+          <p>
+            {isStudying
+              ? `当前会话已持续 ${formatDuration(dashboard?.current_session_seconds ?? 0)}，保持稳定推进。`
+              : "把计时、活动观察、复盘和桌宠陪伴放在同一个安静工作台里。"}
+          </p>
+        </div>
+        <div className="command-metrics">
+          <div>
+            <span>今日总览</span>
+            <strong>{formatDuration(dashboard?.today_study_seconds ?? 0)}</strong>
+          </div>
+          <div>
+            <span>专注度</span>
+            <strong>{focusScore}</strong>
+          </div>
+          <div>
+            <span>当前窗口</span>
+            <strong>{currentApp}</strong>
+          </div>
+        </div>
+      </section>
+
       <div className="dashboard-grid">
         <section className="space-y-5">
           <FoldPanel title="专注计时" defaultOpen>

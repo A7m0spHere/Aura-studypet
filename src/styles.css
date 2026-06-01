@@ -45,13 +45,13 @@ button:disabled {
   .app-shell::before {
     content: "";
     position: fixed;
-    inset: 72px 0 auto auto;
-    width: min(58vw, 820px);
-    height: min(46vw, 460px);
+    inset: 64px 0 auto auto;
+    width: min(62vw, 900px);
+    height: min(48vw, 500px);
     background-image: url("./assets/aura-brand-visual.png");
     background-size: cover;
     background-position: center;
-    opacity: 0.22;
+    opacity: 0.32;
     pointer-events: none;
     mix-blend-mode: multiply;
     mask-image: linear-gradient(90deg, transparent 0%, black 24%, black 78%, transparent 100%);
@@ -79,7 +79,52 @@ button:disabled {
   }
 
   .dashboard-grid {
-    @apply grid gap-5 p-6 xl:grid-cols-[330px_minmax(420px,1fr)_380px];
+    @apply grid gap-5 px-6 pb-6 xl:grid-cols-[330px_minmax(420px,1fr)_380px];
+  }
+
+  .command-center {
+    @apply mx-6 mt-6 grid min-h-[184px] overflow-hidden rounded-lg border border-line bg-surface/80 shadow-panel shadow-inset;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 42%);
+    background:
+      linear-gradient(90deg, rgb(251 252 248 / 0.96) 0%, rgb(251 252 248 / 0.86) 42%, rgb(220 232 223 / 0.42) 100%),
+      url("./assets/aura-brand-visual.png");
+    background-size: cover;
+    background-position: center right;
+  }
+
+  .command-copy {
+    @apply flex min-w-0 flex-col justify-center px-7 py-6;
+  }
+
+  .command-kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-moss;
+  }
+
+  .command-copy h2 {
+    @apply mt-3 max-w-2xl text-3xl font-semibold leading-tight text-ink;
+    text-wrap: pretty;
+  }
+
+  .command-copy p:not(.command-kicker) {
+    @apply mt-3 max-w-2xl text-sm leading-6 text-ink/60;
+    text-wrap: pretty;
+  }
+
+  .command-metrics {
+    @apply grid gap-px border-l border-line bg-line/70 p-px;
+    grid-template-columns: 1fr;
+  }
+
+  .command-metrics > div {
+    @apply flex min-w-0 items-center justify-between gap-4 bg-surface/90 px-5 py-4 backdrop-blur;
+  }
+
+  .command-metrics span {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-ink/45;
+  }
+
+  .command-metrics strong {
+    @apply min-w-0 truncate text-right text-lg font-semibold text-ink;
   }
 
   .primary-button,
