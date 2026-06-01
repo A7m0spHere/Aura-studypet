@@ -24,7 +24,7 @@ use chrono::{DateTime, Datelike, Local, TimeZone, Timelike, Utc};
 use collector::sample_foreground_window;
 use db::Database;
 use pomodoro::{PomodoroMachine, PomodoroState, TickResult};
-use tauri::{LogicalSize, Manager, State};
+use tauri::{LogicalSize, Manager, State, WebviewUrl, WebviewWindow};
 
 pub(crate) use types::*;
 
@@ -1160,6 +1160,45 @@ pub(crate) fn spawn_pomodoro_timer(
     });
 }
 
+fn ensure_main_window(app: &tauri::App) -> AppResult<WebviewWindow> {
+    if let Some(window) = app.get_webview_window("main") {
+        return Ok(window);
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "main",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Aura")
+    .inner_size(1180.0, 780.0)
+    .min_inner_size(960.0, 680.0)
+    .build()
+    .map_err(to_string)
+}
+
+fn show_main_window_on_startup(app: &tauri::App) {
+    match ensure_main_window(app) {
+        Ok(window) => {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+        Err(error) => eprintln!("[Aura window] failed to show main window: {error}"),
+    }
+
+    let handle = app.handle().clone();
+    thread::spawn(move || {
+        for _ in 0..5 {
+            thread::sleep(Duration::from_millis(800));
+            if let Some(window) = handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+    });
+}
+
 /* -------------------------------------------------------------------------- */
 /*  migration                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -1274,6 +1313,7 @@ fn main() {
                 sampler: Mutex::new(None),
                 activity: Mutex::new(None),
             });
+            show_main_window_on_startup(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -1,5 +1,6 @@
 import {
   Activity,
+  ChevronDown,
   Clock3,
   Coffee,
   Eye,
@@ -13,7 +14,7 @@ import {
   TimerReset,
   Trash2,
 } from "lucide-react";
-import { emitTo } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -29,6 +30,7 @@ import {
 } from "recharts";
 import { SettingsModal } from "./components/SettingsModal";
 import { api, formatDuration } from "./lib/api";
+import { DEFAULT_APP_PREFERENCES, DEFAULT_PET_PREFERENCES } from "./lib/defaults";
 import type {
   AiSummaryTone,
   AppPreferences,
@@ -40,25 +42,6 @@ import type {
   PetEmotion,
   PetPreferences,
 } from "./lib/types";
-
-const defaultPreferences: AppPreferences = {
-  privacy_notice_accepted: false,
-  default_pomodoro_minutes: 25,
-  ai_summary_tone: "witty",
-  activity_capture_enabled: true,
-};
-
-const defaultPetPreferences: PetPreferences = {
-  pet_enabled: false,
-  pet_name: "Aura",
-  pet_persona_prompt: "",
-  pet_bubble_enabled: true,
-  proactive_ai_enabled: false,
-  idle_nudge_minutes: 30,
-  app_switch_nudge_enabled: true,
-  active_pet_id: "default-aura",
-  first_pet_enable_seen: false,
-};
 
 const toneLabels: Record<AiSummaryTone, string> = {
   gentle: "温和鼓励",
@@ -115,6 +98,10 @@ function summaryExcerpt(summary: string) {
   return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
 }
 
+function isTauriRuntime() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 async function emitPetBubble(message: string, emotion: PetEmotion = "idle") {
   if (!message.trim()) return;
   try {
@@ -143,8 +130,9 @@ export default function App() {
   const [dashboard, setDashboard] = useState<DashboardState | null>(null);
   const [lastReport, setLastReport] = useState<DailyReport | null>(null);
   const [reports, setReports] = useState<DailyReport[]>([]);
-  const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
+  const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_APP_PREFERENCES);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"general" | "pet" | "ai" | "privacy-data" | undefined>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -153,7 +141,7 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [auraInput, setAuraInput] = useState("");
   const [auraMessages, setAuraMessages] = useState<AuraChatMessage[]>([]);
-  const [petPreferences, setPetPreferences] = useState<PetPreferences>(defaultPetPreferences);
+  const [petPreferences, setPetPreferences] = useState<PetPreferences>(DEFAULT_PET_PREFERENCES);
   const lastPetApp = useRef("");
   const appEnteredAt = useRef(Date.now());
   const lastNudgeAt = useRef(0);
@@ -182,7 +170,7 @@ export default function App() {
     try {
       setPetPreferences(await api.getPetPreferences());
     } catch {
-      setPetPreferences(defaultPetPreferences);
+      setPetPreferences(DEFAULT_PET_PREFERENCES);
     }
   }
 
@@ -216,8 +204,20 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    listen<"pet" | "ai" | "privacy-data">("open-settings", (event) => {
+      setSettingsTab(event.payload);
+      setSettingsOpen(true);
+    }).then((value) => {
+      unlisten = value;
+    });
+    return () => unlisten?.();
+  }, []);
+
   const isStudying = dashboard?.session_status === "studying";
-  const reportId = lastReport?.id ?? dashboard?.active_report_id ?? null;
+  const reportId = isStudying ? null : lastReport?.id ?? dashboard?.active_report_id ?? null;
   const aiSummary = lastReport?.ai_summary ?? dashboard?.ai_summary;
   const topApps = dashboard?.app_usage.slice(0, 6) ?? [];
   const focusScore = dashboard?.focus_score ?? 0;
@@ -306,6 +306,25 @@ export default function App() {
       setLastReport((current) => (current ? { ...current, ai_summary: summary } : current));
       emitPetBubble(summary, "ended");
     });
+  }
+
+  async function stopSessionAndSummarize() {
+    await runAction(
+      async () => {
+        const report = await api.stopSession();
+        try {
+          const summary = await api.generateAiSummary(report.id, preferences.ai_summary_tone);
+          return { ...report, ai_summary: summary };
+        } catch (summaryError) {
+          setError(`日报已保存，但 AI 总结生成失败：${String(summaryError)}`);
+          return report;
+        }
+      },
+      (report) => {
+        setLastReport(report);
+        if (report.ai_summary) emitPetBubble(report.ai_summary, "ended");
+      },
+    );
   }
 
   async function sendChat() {
@@ -408,7 +427,14 @@ export default function App() {
               显示桌宠
             </button>
           ) : null}
-          <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="打开设置">
+          <button
+            className="icon-button"
+            onClick={() => {
+              setSettingsTab(undefined);
+              setSettingsOpen(true);
+            }}
+            aria-label="打开设置"
+          >
             <Settings size={18} />
           </button>
         </div>
@@ -416,7 +442,7 @@ export default function App() {
 
       <div className="grid gap-5 p-6 xl:grid-cols-[330px_minmax(420px,1fr)_380px]">
         <section className="space-y-5">
-          <section className="rounded-lg border border-line bg-white/85 p-5 shadow-panel">
+          <FoldPanel title="专注计时" defaultOpen>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/50">Focus</p>
@@ -438,7 +464,7 @@ export default function App() {
                 <Play size={17} />
                 开始专注
               </button>
-              <button className="danger-button justify-center" disabled={busy || !isStudying} onClick={() => runAction(api.stopSession, setLastReport)}>
+              <button className="danger-button justify-center" disabled={busy || !isStudying} onClick={stopSessionAndSummarize}>
                 <Square size={16} />
                 结束记录
               </button>
@@ -447,9 +473,9 @@ export default function App() {
               <ShieldCheck size={16} />
               查看隐私边界
             </button>
-          </section>
+          </FoldPanel>
 
-          <section className="rounded-lg border border-line bg-white/85 p-5 shadow-panel">
+          <FoldPanel title="番茄钟" defaultOpen={false}>
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/50">Pomodoro</p>
@@ -496,7 +522,7 @@ export default function App() {
                 <RefreshCw size={17} />
               </button>
             </div>
-          </section>
+          </FoldPanel>
         </section>
 
         <section className="space-y-5">
@@ -516,7 +542,7 @@ export default function App() {
             />
           </div>
 
-          <section className="rounded-lg border border-line bg-white/85 p-5 shadow-panel">
+          <FoldPanel title="实时观察" defaultOpen={false}>
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold">实时观察</h2>
@@ -536,9 +562,9 @@ export default function App() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </section>
+          </FoldPanel>
 
-          <section className="rounded-lg border border-line bg-white/85 p-5 shadow-panel">
+          <FoldPanel title="应用排行" defaultOpen={false}>
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold">应用排行</h2>
@@ -563,17 +589,17 @@ export default function App() {
                 开始专注并切换几个窗口后，这里会显示应用使用时长排行。
               </p>
             )}
-          </section>
+          </FoldPanel>
         </section>
 
         <aside className="space-y-5">
-          <section className="rounded-lg border border-moss/25 bg-white/90 p-5 shadow-panel">
+          <FoldPanel title="桌宠" defaultOpen={false} tone="moss">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">Aura Dock</p>
                 <h2 className="mt-2 text-lg font-semibold">桌宠陪伴</h2>
                 <p className="mt-1 text-sm text-ink/60">
-                  {petStatus} · {petPreferences.pet_name || "Aura"}
+                  {petStatus} · {petPreferences.pet_name || "未选择宠物"}
                 </p>
               </div>
               <div className="grid h-10 w-10 place-items-center rounded-md bg-moss text-white">
@@ -591,14 +617,20 @@ export default function App() {
                 <Eye size={16} />
                 显示桌宠
               </button>
-              <button className="secondary-button justify-center" onClick={() => setSettingsOpen(true)}>
+              <button
+                className="secondary-button justify-center"
+                onClick={() => {
+                  setSettingsTab(undefined);
+                  setSettingsOpen(true);
+                }}
+              >
                 <Settings size={16} />
                 桌宠设置
               </button>
             </div>
-          </section>
+          </FoldPanel>
 
-          <section className="rounded-lg border border-line bg-white/90 p-5 shadow-panel">
+          <FoldPanel title="和 Aura 对话" defaultOpen={false}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">和 Aura 对话</h2>
@@ -638,9 +670,9 @@ export default function App() {
                 发送
               </button>
             </div>
-          </section>
+          </FoldPanel>
 
-          <section className="rounded-lg border border-line bg-white/90 p-5 shadow-panel">
+          <FoldPanel title="复盘" defaultOpen>
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold">复盘</h2>
@@ -694,7 +726,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-          </section>
+          </FoldPanel>
         </aside>
       </div>
 
@@ -717,8 +749,12 @@ export default function App() {
       {error ? <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-ink px-4 py-3 text-sm text-white">{error}</div> : null}
       <SettingsModal
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false);
+          setSettingsTab(undefined);
+        }}
         onShowPrivacy={() => setPrivacyOpen(true)}
+        initialTab={settingsTab}
         preferences={preferences}
         onSavePreferences={savePreferences}
         onDataCleared={() => {
@@ -744,6 +780,36 @@ function MetricTile({ label, value, hint, icon }: { label: string; value: string
         <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-paper text-moss">{icon}</div>
       </div>
     </section>
+  );
+}
+
+function FoldPanel({
+  title,
+  defaultOpen,
+  tone = "default",
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  tone?: "default" | "moss";
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+
+  return (
+    <details className={tone === "moss" ? "fold-panel fold-panel-moss" : "fold-panel"} open={open}>
+      <summary
+        className="fold-panel-summary"
+        onClick={(event) => {
+          event.preventDefault();
+          setOpen((current) => !current);
+        }}
+      >
+        <span>{title}</span>
+        <ChevronDown size={17} />
+      </summary>
+      <div className="fold-panel-body">{children}</div>
+    </details>
   );
 }
 
@@ -788,7 +854,7 @@ function HistoryDialog({
                   <article className="rounded-lg border border-line bg-white p-4" key={report.id}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h4 className="font-semibold">日报 #{report.id}</h4>
+                        <h4 className="font-semibold">专注日报</h4>
                         <p className="text-sm text-ink/60">
                           {formatTime(report.started_at)} - {formatTime(report.ended_at)}
                         </p>

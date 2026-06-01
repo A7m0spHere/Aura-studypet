@@ -431,6 +431,9 @@ pub(crate) fn show_pet_menu(app: tauri::AppHandle, x: i32, y: i32) -> AppResult<
         .map_err(to_string)?;
     window.show().map_err(to_string)?;
     window.set_focus().map_err(to_string)?;
+    window
+        .emit("pet-menu-opened", ())
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -497,7 +500,7 @@ pub(crate) fn import_pet_profile(folder_path: String, state: State<AppState>) ->
     }
     let profile = read_pet_profile_from_dir(&source_dir)?;
     if profile.id == "default-aura" {
-        return Err("导入宠物不能使用保留 id: default-aura".into());
+        return Err("default-aura 是历史保留 id，请换一个 id。".into());
     }
 
     let pet_root = state.data_dir.join("pets");

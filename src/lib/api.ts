@@ -62,6 +62,7 @@ export const api = {
   resetPomodoro: () => call<PomodoroState>("reset_pomodoro"),
   saveAiSettings: (settings: AiSettingsInput) => call<void>("save_ai_settings", { settings }),
   getAiSettingsMasked: () => call<AiSettingsMasked>("get_ai_settings_masked"),
+  deleteAiSettingsProvider: (provider: string) => call<void>("delete_ai_settings_provider", { provider }),
   testAiConnection: (settings: AiSettingsInput) =>
     call<AiTestResult>("test_ai_connection", { settings }),
   listAiModels: (settings: AiSettingsInput) => call<AiModelList>("list_ai_models", { settings }),
@@ -88,6 +89,11 @@ export const api = {
   showPetWindow: () => call<void>("show_pet_window"),
   hidePetWindow: () => call<void>("hide_pet_window"),
   dragPetWindow: () => call<void>("drag_pet_window"),
+  showPetMenu: (x: number, y: number) => call<void>("show_pet_menu", { x, y }),
+  hidePetMenu: () => call<void>("hide_pet_menu"),
+  showMainWindow: (settingsTab?: "pet" | "ai" | "privacy-data") =>
+    call<void>("show_main_window", { settings_tab: settingsTab }),
+  applyPetWindowPreferences: () => call<void>("apply_pet_window_preferences"),
   getPetLibraryDir: () => call<string>("get_pet_library_dir"),
   openPetLibraryDir: () => call<void>("open_pet_library_dir"),
   importPetProfile: (folderPath: string) =>

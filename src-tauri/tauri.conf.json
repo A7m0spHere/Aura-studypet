@@ -12,11 +12,13 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Aura",
         "width": 1180,
         "height": 780,
         "minWidth": 960,
-        "minHeight": 680
+        "minHeight": 680,
+        "visible": true
       },
       {
         "label": "pet",
@@ -25,6 +27,21 @@
         "height": 380,
         "minWidth": 300,
         "minHeight": 380,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false
+      },
+      {
+        "label": "pet-menu",
+        "title": "Aura Pet Menu",
+        "width": 280,
+        "height": 660,
+        "minWidth": 280,
+        "minHeight": 660,
         "resizable": false,
         "decorations": false,
         "transparent": true,

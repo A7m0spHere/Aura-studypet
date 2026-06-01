@@ -90,4 +90,33 @@ describe("PetSpriteRenderer", () => {
     expect(image).toHaveStyle({ backgroundPosition: "0px 0px" });
     expect(image.getAttribute("style")).not.toContain("-1152px");
   });
+
+  it("maps the xinhua atlas rows to the new motion names", () => {
+    const expectedRows = [
+      ["idle", 0],
+      ["walk_right", 2],
+      ["walk_left", 1],
+      ["greet", 3],
+      ["jump", 4],
+      ["happy", 5],
+      ["thinking", 6],
+      ["scold", 7],
+      ["talk", 8],
+    ] as const;
+
+    for (const [animation, row] of expectedRows) {
+      const { unmount } = render(<PetSpriteRenderer animation={animation} petName="Aura" profile={atlasProfile} />);
+      expect(screen.getByRole("img", { name: "Aura" })).toHaveStyle({
+        backgroundPosition: row === 0 ? "0px 0px" : `0px -${row * 208}px`,
+      });
+      unmount();
+    }
+  });
+
+  it("does not render a builtin default pet when no sprite is available", () => {
+    const { container } = render(<PetSpriteRenderer animation="idle" petName="Aura" />);
+
+    expect(screen.queryByRole("img", { name: "Aura" })).not.toBeInTheDocument();
+    expect(container.querySelector(".default-aura-pet")).not.toBeInTheDocument();
+  });
 });

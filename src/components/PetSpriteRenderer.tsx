@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { petAssetUrl } from "../lib/api";
-import type { PetAnimationName } from "../lib/petAnimation";
+import { normalizePetAnimationName } from "../lib/petAnimation";
+import type { PetAnimationName, PetMotionName } from "../lib/petAnimation";
 import type { PetEmotion, PetProfile } from "../lib/types";
 
 const PET_ATLAS_COLUMNS = 8;
@@ -11,30 +12,28 @@ const PET_ATLAS_FRAME_MS = 140;
 const PET_ATLAS_REST_MS = 820;
 const FALLBACK_ATLAS_FRAMES = Array.from({ length: PET_ATLAS_COLUMNS }, (_, index) => index);
 
-const ATLAS_ROWS_BY_ANIMATION: Record<PetAnimationName, number> = {
+const ATLAS_ROWS_BY_ANIMATION: Record<PetMotionName, number> = {
   idle: 0,
-  studying: 1,
-  thinking: 2,
-  happy: 3,
-  nudge: 4,
-  ended: 5,
-  interact: 6,
-  chat: 7,
-  dragging: 0,
-  dropped: 0,
+  walk_right: 2,
+  walk_left: 1,
+  greet: 3,
+  jump: 4,
+  happy: 5,
+  thinking: 6,
+  scold: 7,
+  talk: 8,
 };
 
-const ANIMATION_EMOTION_FALLBACK: Record<PetAnimationName, PetEmotion> = {
-  idle: "idle",
-  studying: "studying",
-  thinking: "thinking",
-  happy: "happy",
-  nudge: "nudge",
-  ended: "ended",
-  interact: "interact",
-  chat: "chat",
-  dragging: "idle",
-  dropped: "idle",
+const SPRITE_EMOTION_FALLBACK: Record<PetMotionName, PetEmotion[]> = {
+  idle: ["idle"],
+  walk_right: ["walk_right", "studying", "idle"],
+  walk_left: ["walk_left", "studying", "idle"],
+  greet: ["greet", "interact", "idle"],
+  jump: ["jump", "interact", "idle"],
+  happy: ["happy", "ended", "idle"],
+  thinking: ["thinking", "studying", "idle"],
+  scold: ["scold", "nudge", "idle"],
+  talk: ["talk", "chat", "idle"],
 };
 
 interface PetSpriteRendererProps {
@@ -53,21 +52,23 @@ export function PetSpriteRenderer({
   dropped = false,
 }: PetSpriteRendererProps) {
   const [atlasFrame, setAtlasFrame] = useState(0);
-  const emotion = ANIMATION_EMOTION_FALLBACK[animation] ?? "idle";
+  const motion = normalizePetAnimationName(animation);
+  const spriteCandidates = SPRITE_EMOTION_FALLBACK[motion] ?? ["idle"];
+  const spriteEmotion = spriteCandidates.find((emotion) => profile?.sprites?.[emotion]);
   const spritePath =
-    profile?.sprites?.[emotion] ||
+    (spriteEmotion ? profile?.sprites?.[spriteEmotion] : undefined) ||
     profile?.sprites?.[profile.default_emotion] ||
     profile?.sprites?.idle ||
     profile?.spritesheet_path ||
     "";
   const staticSprite = Boolean(
-    profile?.sprites?.[emotion] ||
+    (spriteEmotion ? profile?.sprites?.[spriteEmotion] : undefined) ||
       profile?.sprites?.[profile?.default_emotion ?? "idle"] ||
       profile?.sprites?.idle,
   );
   const spriteUrl = spritePath ? petAssetUrl(spritePath) : "";
   const spriteScale = profile?.sprite_scale ?? 1;
-  const atlasRow = ATLAS_ROWS_BY_ANIMATION[animation] ?? 0;
+  const atlasRow = ATLAS_ROWS_BY_ANIMATION[motion] ?? 0;
   const atlasFrames = useMemo(() => {
     if (staticSprite) return [0];
     const rows = profile?.atlas?.rows ?? [];
@@ -121,7 +122,7 @@ export function PetSpriteRenderer({
     };
   }, [atlasFrame, atlasRow, profile?.atlas, spriteScale, spriteUrl, staticSprite]);
 
-  if (!spriteUrl) return <DefaultAuraPet />;
+  if (!spriteUrl) return null;
 
   return (
     <div
@@ -137,26 +138,5 @@ export function PetSpriteRenderer({
       aria-label={petName}
       style={style}
     />
-  );
-}
-
-function DefaultAuraPet() {
-  return (
-    <svg className="default-aura-pet" viewBox="0 0 180 170" role="img" aria-label="Aura">
-      <ellipse cx="90" cy="154" rx="48" ry="9" fill="#20302b" opacity="0.12" />
-      <path d="M66 20c8-12 36-12 48 0" fill="none" stroke="#f5c84b" strokeWidth="8" strokeLinecap="round" />
-      <path
-        d="M45 86c0-33 20-56 45-56s45 23 45 56c0 34-18 61-45 61S45 120 45 86Z"
-        fill="#f6f1e9"
-        stroke="#20302b"
-        strokeWidth="5"
-      />
-      <path d="M57 82c-15 8-22 20-20 31 12 0 21-5 27-15" fill="#f3a7a0" stroke="#20302b" strokeWidth="4" />
-      <path d="M123 82c15 8 22 20 20 31-12 0-21-5-27-15" fill="#9fd0c2" stroke="#20302b" strokeWidth="4" />
-      <circle cx="73" cy="82" r="5" fill="#20302b" />
-      <circle cx="107" cy="82" r="5" fill="#20302b" />
-      <path d="M80 103c7 6 14 6 21 0" fill="none" stroke="#20302b" strokeWidth="4" strokeLinecap="round" />
-      <path d="M69 126c13 7 29 7 42 0" fill="none" stroke="#d94c3d" strokeWidth="5" strokeLinecap="round" />
-    </svg>
   );
 }

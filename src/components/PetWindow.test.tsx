@@ -12,6 +12,8 @@ const apiMock = vi.hoisted(() => ({
   getPetProfiles: vi.fn(),
   hidePetWindow: vi.fn(),
   dragPetWindow: vi.fn(),
+  showPetMenu: vi.fn(),
+  chatWithAura: vi.fn(),
 }));
 
 const eventMock = vi.hoisted(() => ({
@@ -102,6 +104,19 @@ const profile: PetProfile = {
   bubble_lines: [],
 };
 
+const atlasProfile: PetProfile = {
+  ...profile,
+  spritesheet_path: "atlas.webp",
+  sprites: {},
+  atlas: {
+    columns: 8,
+    row_count: 9,
+    frame_width: 192,
+    frame_height: 208,
+    rows: Array.from({ length: 9 }, () => [0, 1, 2, 3, 4, 5]),
+  },
+};
+
 function firePointer(
   target: Element,
   type: "pointerdown" | "pointermove" | "pointerup",
@@ -133,11 +148,21 @@ describe("PetWindow", () => {
       app_switch_nudge_enabled: true,
       active_pet_id: "aura",
       first_pet_enable_seen: true,
+      pet_always_on_top: true,
+      pet_scale: 1,
     });
     apiMock.getCurrentStatus.mockResolvedValue(dashboard());
     apiMock.getPetProfiles.mockResolvedValue([profile]);
     apiMock.hidePetWindow.mockResolvedValue(undefined);
     apiMock.dragPetWindow.mockResolvedValue(undefined);
+    apiMock.showPetMenu.mockResolvedValue(undefined);
+    apiMock.chatWithAura.mockResolvedValue({
+      id: 10,
+      role: "assistant",
+      content: "我在。",
+      emotion: "happy",
+      created_at: new Date().toISOString(),
+    });
     windowMock.setPosition.mockResolvedValue(undefined);
     windowMock.startDragging.mockResolvedValue(undefined);
     windowMock.cursorPosition.mockResolvedValue({ x: 150, y: 180 });
@@ -188,6 +213,56 @@ describe("PetWindow", () => {
     expect(position).toMatchObject({ x: 140, y: 160 });
   });
 
+  it("uses walk animations for drag direction", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([atlasProfile]);
+    render(<PetWindow />);
+
+    const image = await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+
+    firePointer(stage, "pointerdown", { button: 0, pointerId: 17, x: 150, y: 180 });
+    expect(image).toHaveStyle({ backgroundPosition: "0px 0px" });
+
+    windowMock.cursorPosition.mockResolvedValueOnce({ x: 170, y: 180 });
+    firePointer(stage, "pointermove", { pointerId: 17, x: 170, y: 180 });
+
+    await waitFor(() => expect(image).toHaveStyle({ backgroundPosition: "0px -416px" }));
+
+    windowMock.cursorPosition.mockResolvedValueOnce({ x: 130, y: 180 });
+    firePointer(stage, "pointermove", { pointerId: 17, x: 130, y: 180 });
+
+    await waitFor(() => expect(image).toHaveStyle({ backgroundPosition: "0px -208px" }));
+  });
+
+  it("switches drag animation when horizontal trend changes", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([atlasProfile]);
+    render(<PetWindow />);
+
+    const image = await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+
+    firePointer(stage, "pointerdown", { button: 0, pointerId: 18, x: 150, y: 180 });
+
+    windowMock.cursorPosition.mockResolvedValueOnce({ x: 128, y: 180 });
+    firePointer(stage, "pointermove", { pointerId: 18, x: 128, y: 180 });
+    await waitFor(() => expect(image).toHaveStyle({ backgroundPosition: "0px -208px" }));
+
+    windowMock.cursorPosition.mockResolvedValueOnce({ x: 164, y: 180 });
+    firePointer(stage, "pointermove", { pointerId: 18, x: 164, y: 180 });
+    await waitFor(() => expect(image).toHaveStyle({ backgroundPosition: "0px -416px" }));
+  });
+
+  it("opens the custom pet menu on right click", async () => {
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.contextMenu(stage, { screenX: 320, screenY: 240 });
+
+    await waitFor(() => expect(apiMock.showPetMenu).toHaveBeenCalledWith(408, 138));
+    expect(apiMock.dragPetWindow).not.toHaveBeenCalled();
+  });
+
   it("drops back after pointer up", async () => {
     vi.useFakeTimers();
     render(<PetWindow />);
@@ -215,14 +290,154 @@ describe("PetWindow", () => {
     expect(stage).not.toHaveClass("pet-stage-dropped");
   });
 
-  it("does not start dragging from the hide button", async () => {
+  it("does not run single-click interaction after dragging", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([{ ...profile, bubble_lines: ["drag should not click"] }]);
     render(<PetWindow />);
 
-    const button = await screen.findByRole("button", { name: "隐藏桌宠" });
-    fireEvent.pointerDown(button, { button: 0, pointerId: 4, screenX: 150, screenY: 180 });
-    fireEvent.click(button);
+    await screen.findByRole("img", { name: "Aura" });
+    vi.useFakeTimers();
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+
+    firePointer(stage, "pointerdown", { button: 0, pointerId: 12, x: 150, y: 180 });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    windowMock.cursorPosition.mockResolvedValueOnce({ x: 170, y: 200 });
+    firePointer(stage, "pointermove", { pointerId: 12, x: 170, y: 200 });
+    firePointer(stage, "pointerup", { pointerId: 12, x: 170, y: 200 });
+    fireEvent.click(stage);
+
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+
+    expect(screen.queryByText("drag should not click")).not.toBeInTheDocument();
+  });
+
+  it("does not render an in-window hide button", async () => {
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
 
     expect(windowMock.setPosition).not.toHaveBeenCalled();
-    expect(apiMock.hidePetWindow).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(apiMock.hidePetWindow).not.toHaveBeenCalled();
+  });
+
+  it("opens chat on double click without running single-click interaction", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([{ ...profile, bubble_lines: ["single click only"] }]);
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    vi.useFakeTimers();
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+
+    fireEvent.click(stage);
+    fireEvent.doubleClick(stage);
+
+    expect(screen.getByPlaceholderText("和 Aura 说点什么")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(screen.queryByText("single click only")).not.toBeInTheDocument();
+  });
+
+  it("plays greet or jump when the pet is clicked", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([atlasProfile]);
+    render(<PetWindow />);
+
+    const image = await screen.findByRole("img", { name: "Aura" });
+    vi.useFakeTimers();
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+
+    fireEvent.click(stage);
+    act(() => {
+      vi.advanceTimersByTime(180);
+    });
+
+    expect(image).toHaveStyle({ backgroundPosition: "0px -624px" });
+  });
+
+  it("keeps chat form events from starting pet drag", async () => {
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.doubleClick(stage);
+    const input = await screen.findByPlaceholderText("和 Aura 说点什么");
+
+    firePointer(input, "pointerdown", { button: 0, pointerId: 11, x: 150, y: 180 });
+
+    expect(windowMock.setPosition).not.toHaveBeenCalled();
+    expect(apiMock.dragPetWindow).not.toHaveBeenCalled();
+  });
+
+  it("sends pet chat and shows the assistant reply", async () => {
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.doubleClick(stage);
+
+    const input = await screen.findByPlaceholderText("和 Aura 说点什么");
+    fireEvent.change(input, { target: { value: "你好" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(apiMock.chatWithAura).toHaveBeenCalledWith("你好"));
+    expect(await screen.findByText("我在。")).toBeInTheDocument();
+  });
+
+  it("plays thinking while waiting for AI and talk when the reply arrives", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([atlasProfile]);
+    let resolveReply: (value: {
+      id: number;
+      role: "assistant";
+      content: string;
+      emotion: "happy";
+      created_at: string;
+    }) => void;
+    apiMock.chatWithAura.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReply = resolve;
+      }),
+    );
+    render(<PetWindow />);
+
+    const image = await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.doubleClick(stage);
+
+    const input = await screen.findByPlaceholderText("和 Aura 说点什么");
+    fireEvent.change(input, { target: { value: "你好" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(image).toHaveStyle({ backgroundPosition: "0px -1248px" }));
+
+    resolveReply!({
+      id: 11,
+      role: "assistant",
+      content: "我在。",
+      emotion: "happy",
+      created_at: new Date().toISOString(),
+    });
+
+    expect(await screen.findByText("我在。")).toBeInTheDocument();
+    await waitFor(() => expect(image).toHaveStyle({ backgroundPosition: "0px -1664px" }));
+  });
+
+  it("shows pet chat failures as a bubble without crashing", async () => {
+    apiMock.chatWithAura.mockRejectedValueOnce(new Error("AI unavailable"));
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.doubleClick(stage);
+
+    const input = await screen.findByPlaceholderText("和 Aura 说点什么");
+    fireEvent.change(input, { target: { value: "报错测试" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Error: AI unavailable")).toBeInTheDocument();
   });
 });

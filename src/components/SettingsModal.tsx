@@ -26,12 +26,13 @@ interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
   onShowPrivacy: () => void;
+  initialTab?: SettingsTab;
   preferences: AppPreferences;
   onSavePreferences: (preferences: AppPreferences) => Promise<void>;
   onDataCleared?: () => void;
 }
 
-type AiProvider = AiSettingsInput["provider"];
+type AiProvider = string;
 type AiForms = Record<AiProvider, AiSettingsInput>;
 type SettingsTab = "general" | "pet" | "ai" | "privacy-data";
 
@@ -68,6 +69,7 @@ export function SettingsModal({
   open,
   onClose,
   onShowPrivacy,
+  initialTab,
   preferences,
   onSavePreferences,
   onDataCleared,
@@ -89,7 +91,7 @@ export function SettingsModal({
     setMessage("");
     setTestMessage("");
     setCustomModels([]);
-    setActiveTab("general");
+    setActiveTab(initialTab ?? "general");
     api.getDataDir().then(setDataDir).catch(() => setDataDir(""));
     api
       .getAiSettingsMasked()
@@ -97,13 +99,13 @@ export function SettingsModal({
         setMasked(value);
         setActiveProvider(value.active_provider);
         setForms(formsFromMasked(value));
-        const custom = value.providers.find((item) => item.provider === "custom");
-        setCustomModels(custom?.available_models ?? []);
+        const active = value.providers.find((item) => item.provider === value.active_provider);
+        setCustomModels(active?.available_models ?? []);
       })
       .catch((error) => setMessage(String(error)));
-  }, [open]);
+  }, [open, initialTab]);
 
-  const activeSettings = forms[activeProvider];
+  const activeSettings = forms[activeProvider] ?? DEFAULT_FORMS.deepseek;
   const activeMasked = useMemo(
     () => masked?.providers.find((item) => item.provider === activeProvider),
     [activeProvider, masked],
@@ -116,7 +118,7 @@ export function SettingsModal({
     setForms((current) => ({
       ...current,
       [activeProvider]: {
-        ...current[activeProvider],
+        ...(current[activeProvider] ?? { ...DEFAULT_FORMS.custom, provider: activeProvider }),
         ...patch,
       },
     }));
@@ -131,7 +133,7 @@ export function SettingsModal({
       setForms((current) => ({
         ...current,
         [activeProvider]: {
-          ...current[activeProvider],
+          ...(current[activeProvider] ?? activeSettings),
           api_key: "",
         },
       }));
@@ -161,14 +163,14 @@ export function SettingsModal({
     setDetectingModels(true);
     setTestMessage("");
     try {
-      const result = await api.listAiModels(forms.custom);
+      const result = await api.listAiModels(activeSettings);
       setTestMessage(result.message);
       if (result.ok) {
         setCustomModels(result.models);
-        if (!forms.custom.model.trim() && result.models.length > 0) {
+        if (!activeSettings.model.trim() && result.models.length > 0) {
           setForms((current) => ({
             ...current,
-            custom: { ...current.custom, model: result.models[0] },
+            [activeProvider]: { ...(current[activeProvider] ?? activeSettings), model: result.models[0] },
           }));
         }
       }
@@ -216,8 +218,38 @@ export function SettingsModal({
     }
   }
 
+  function addCustomProfile() {
+    const provider = `custom:${Date.now()}`;
+    setActiveProvider(provider);
+    setCustomModels([]);
+    setForms((current) => ({
+      ...current,
+      [provider]: {
+        ...DEFAULT_FORMS.custom,
+        provider,
+      },
+    }));
+  }
+
+  async function deleteCustomProfile() {
+    if (activeProvider === "deepseek" || activeProvider === "custom") return;
+    setMessage("");
+    try {
+      await api.deleteAiSettingsProvider(activeProvider);
+      const nextMasked = await api.getAiSettingsMasked();
+      setMasked(nextMasked);
+      setActiveProvider(nextMasked.active_provider);
+      setForms(formsFromMasked(nextMasked));
+      setCustomModels([]);
+      setMessage("已删除该自定义 API 配置。");
+    } catch (error) {
+      setMessage(String(error));
+    }
+  }
+
   const deepseek = activeProvider === "deepseek";
-  const custom = activeProvider === "custom";
+  const custom = activeProvider !== "deepseek";
+  const customProfiles = masked?.providers.filter((item) => item.provider !== "deepseek") ?? [];
   const apiKeyPlaceholder = apiKeyPlaceholderFor(activeMasked);
 
   return (
@@ -288,17 +320,55 @@ export function SettingsModal({
                     <div className="grid gap-2 sm:grid-cols-2">
                       <button
                         className={deepseek ? "primary-button" : "secondary-button"}
-                        onClick={() => setActiveProvider("deepseek")}
+                        onClick={() => {
+                          setActiveProvider("deepseek");
+                          setCustomModels([]);
+                        }}
                       >
                         DeepSeek
                       </button>
                       <button
                         className={custom ? "primary-button" : "secondary-button"}
-                        onClick={() => setActiveProvider("custom")}
+                        onClick={() => {
+                          setActiveProvider(customProfiles[0]?.provider ?? "custom");
+                          setCustomModels(customProfiles[0]?.available_models ?? []);
+                        }}
                       >
                         自定义 OpenAI 兼容 API
                       </button>
                     </div>
+                    {custom ? (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                        <select
+                          className="h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-moss"
+                          value={activeProvider}
+                          onChange={(event) => {
+                            const provider = event.target.value;
+                            const profile = customProfiles.find((item) => item.provider === provider);
+                            setActiveProvider(provider);
+                            setCustomModels(profile?.available_models ?? []);
+                          }}
+                        >
+                          {customProfiles.map((profile, index) => (
+                            <option key={profile.provider} value={profile.provider}>
+                              {customProfileLabel(profile.provider, index)}
+                            </option>
+                          ))}
+                          {!customProfiles.length ? <option value="custom">自定义 API 1</option> : null}
+                        </select>
+                        <button className="secondary-button justify-center" onClick={addCustomProfile} type="button">
+                          新增
+                        </button>
+                        <button
+                          className="danger-button justify-center"
+                          onClick={deleteCustomProfile}
+                          disabled={activeProvider === "custom"}
+                          type="button"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ) : null}
                   </SettingsSection>
 
                   <SettingsSection title="连接参数">
@@ -467,7 +537,7 @@ function SettingsStatus({ message, testMessage }: { message: string; testMessage
 
 function formsFromMasked(masked: AiSettingsMasked): AiForms {
   return masked.providers.reduce<AiForms>((forms, provider) => {
-    const defaults = DEFAULT_FORMS[provider.provider];
+    const defaults = provider.provider === "deepseek" ? DEFAULT_FORMS.deepseek : DEFAULT_FORMS.custom;
     forms[provider.provider] = {
       provider: provider.provider,
       base_url: provider.base_url.trim() || defaults.base_url,
@@ -483,6 +553,11 @@ function cloneDefaultForms(): AiForms {
     deepseek: { ...DEFAULT_FORMS.deepseek },
     custom: { ...DEFAULT_FORMS.custom },
   };
+}
+
+function customProfileLabel(provider: string, index: number) {
+  if (provider === "custom") return "自定义 API 1";
+  return `自定义 API ${index + 1}`;
 }
 
 function apiKeyPlaceholderFor(provider: AiProviderSettingsMasked | undefined) {

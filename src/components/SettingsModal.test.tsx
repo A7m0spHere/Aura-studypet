@@ -19,6 +19,7 @@ const apiMock = vi.hoisted(() => ({
   showPetWindow: vi.fn(),
   hidePetWindow: vi.fn(),
   dragPetWindow: vi.fn(),
+  applyPetWindowPreferences: vi.fn(),
   importPetProfile: vi.fn(),
   getPetProfiles: vi.fn(),
   getPetLibraryDir: vi.fn(),
@@ -101,18 +102,21 @@ describe("SettingsModal", () => {
     apiMock.clearLocalData.mockResolvedValue(undefined);
     apiMock.getPetPreferences.mockResolvedValue({
       pet_enabled: false,
-      pet_name: "Aura",
+      pet_name: "",
       pet_persona_prompt: "default persona",
       pet_bubble_enabled: true,
       proactive_ai_enabled: false,
       idle_nudge_minutes: 30,
       app_switch_nudge_enabled: true,
-      active_pet_id: "default-aura",
+      active_pet_id: "",
       first_pet_enable_seen: false,
+      pet_always_on_top: true,
+      pet_scale: 1,
     });
     apiMock.savePetPreferences.mockImplementation((preferences) => Promise.resolve(preferences));
     apiMock.showPetWindow.mockResolvedValue(undefined);
     apiMock.hidePetWindow.mockResolvedValue(undefined);
+    apiMock.applyPetWindowPreferences.mockResolvedValue(undefined);
     apiMock.getPetLibraryDir.mockResolvedValue("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app\\pets");
     apiMock.openPetLibraryDir.mockResolvedValue(undefined);
     apiMock.importPetProfile.mockResolvedValue({
@@ -129,11 +133,11 @@ describe("SettingsModal", () => {
     });
     apiMock.getPetProfiles.mockResolvedValue([
       {
-        id: "default-aura",
-        display_name: "Aura",
-        description: "default",
-        spritesheet_path: "",
-        sprites: {},
+        id: "xinhua",
+        display_name: "心华",
+        description: "test pet",
+        spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+        sprites: { idle: "C:\\pets\\xinhua\\idle.png" },
         persona: null,
         sprite_scale: 1,
         theme_color: null,
@@ -143,11 +147,11 @@ describe("SettingsModal", () => {
     ]);
     apiMock.rescanPetProfiles.mockResolvedValue([
       {
-        id: "default-aura",
-        display_name: "Aura",
-        description: "default",
-        spritesheet_path: "",
-        sprites: {},
+        id: "xinhua",
+        display_name: "心华",
+        description: "test pet",
+        spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+        sprites: { idle: "C:\\pets\\xinhua\\idle.png" },
         persona: null,
         sprite_scale: 1,
         theme_color: null,
@@ -272,5 +276,16 @@ describe("SettingsModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /清空本地数据/ }));
 
     await waitFor(() => expect(apiMock.clearLocalData).toHaveBeenCalledTimes(1));
+  });
+
+  it("requires an imported pet before enabling pet mode", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([]);
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Aura 桌宠/ }));
+
+    expect(await screen.findByText("尚未导入宠物")).toBeInTheDocument();
+    expect(screen.getByText("请先导入宠物文件夹")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /启用/ })).toBeDisabled();
   });
 });

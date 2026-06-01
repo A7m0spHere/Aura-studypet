@@ -1,21 +1,15 @@
 import { Eye, EyeOff, FolderOpen, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { DEFAULT_PET_PREFERENCES } from "../lib/defaults";
 import type { PetPreferences, PetProfile } from "../lib/types";
 
 const defaultPersona =
   "你是 Aura，一个轻量桌面 AI 伙伴。你会陪伴用户学习、工作和复盘。你的语气温和、简短、带一点轻微吐槽，但不能羞辱用户。你只能基于提供的行为数据回应，不要编造。如果用户表现不错，要具体夸奖。如果用户分心，要提醒但不要攻击。每次回复尽量控制在 80 字以内。";
 
 const defaultPetPreferences: PetPreferences = {
-  pet_enabled: false,
-  pet_name: "Aura",
+  ...DEFAULT_PET_PREFERENCES,
   pet_persona_prompt: defaultPersona,
-  pet_bubble_enabled: true,
-  proactive_ai_enabled: false,
-  idle_nudge_minutes: 30,
-  app_switch_nudge_enabled: true,
-  active_pet_id: "default-aura",
-  first_pet_enable_seen: false,
 };
 
 export function PetSettingsPanel() {
@@ -60,6 +54,7 @@ export function PetSettingsPanel() {
         if (saved.pet_enabled) await api.showPetWindow();
         else await api.hidePetWindow();
       }
+      await api.applyPetWindowPreferences();
       setMessage(saved.pet_enabled ? "Aura 桌宠设置已保存。" : "桌宠模式已关闭，主功能不受影响。");
     } catch (error) {
       setMessage(String(error));
@@ -71,6 +66,10 @@ export function PetSettingsPanel() {
   async function togglePetEnabled(checked: boolean) {
     if (!checked) {
       await save({ ...preferences, pet_enabled: false, proactive_ai_enabled: false });
+      return;
+    }
+    if (!profiles.length) {
+      setMessage("请先添加一个兼容 Codex 格式的桌宠文件夹，再启用桌宠。");
       return;
     }
 
@@ -128,7 +127,7 @@ export function PetSettingsPanel() {
           <label className="settings-switch">
             <input
               checked={preferences.pet_enabled}
-              disabled={busy}
+              disabled={busy || !profiles.length}
               type="checkbox"
               onChange={(event) => togglePetEnabled(event.target.checked)}
             />
@@ -139,10 +138,10 @@ export function PetSettingsPanel() {
         <div className="mt-3 grid gap-2 rounded-md border border-line bg-paper px-3 py-2 text-xs leading-5 text-ink/60">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
-              当前宠物：<strong className="font-semibold text-ink">{activeProfile?.display_name ?? "默认 Aura"}</strong>
+              当前宠物：<strong className="font-semibold text-ink">{activeProfile?.display_name ?? "尚未导入宠物"}</strong>
               {!preferences.pet_enabled ? "（已配置，尚未启用）" : ""}
             </span>
-            <span>{activeSpriteCount ? `${activeSpriteCount} 个状态图` : "旧格式 spritesheet"}</span>
+            <span>{activeProfile ? (activeSpriteCount ? `${activeSpriteCount} 个状态图` : "spritesheet 宠物") : "请先导入宠物文件夹"}</span>
           </div>
           <p className="break-all">宠物库：{libraryDir || "正在读取..."}</p>
         </div>
@@ -252,6 +251,29 @@ export function PetSettingsPanel() {
             onBlur={() => save(preferences, false)}
           />
         </label>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="settings-check">
+            <input
+              checked={preferences.pet_always_on_top}
+              type="checkbox"
+              onChange={(event) => save({ ...preferences, pet_always_on_top: event.target.checked }, false)}
+            />
+            桌宠置顶显示
+          </label>
+          <label className="field">
+            <span>桌宠大小</span>
+            <select
+              value={preferences.pet_scale}
+              onChange={(event) => save({ ...preferences, pet_scale: Number(event.target.value) }, false)}
+            >
+              <option value={0.8}>80%</option>
+              <option value={1}>100%</option>
+              <option value={1.2}>120%</option>
+              <option value={1.4}>140%</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <p className="settings-note">

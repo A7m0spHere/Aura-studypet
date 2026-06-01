@@ -74,6 +74,8 @@ export interface PetPreferences {
   app_switch_nudge_enabled: boolean;
   active_pet_id: string;
   first_pet_enable_seen: boolean;
+  pet_always_on_top: boolean;
+  pet_scale: number;
 }
 
 export interface PetProfile {
@@ -98,7 +100,21 @@ export interface PetAtlasMetadata {
   rows: number[][];
 }
 
-export type PetEmotion = "idle" | "studying" | "thinking" | "happy" | "nudge" | "ended";
+export type PetEmotion =
+  | "idle"
+  | "walk_right"
+  | "walk_left"
+  | "greet"
+  | "jump"
+  | "happy"
+  | "thinking"
+  | "scold"
+  | "talk"
+  | "studying"
+  | "nudge"
+  | "ended"
+  | "interact"
+  | "chat";
 
 export type PetSpriteMap = Partial<Record<PetEmotion, string>>;
 
@@ -124,19 +140,19 @@ export interface ProactivePetNudge {
 }
 
 export interface AiSettingsInput {
-  provider: "deepseek" | "custom";
+  provider: string;
   base_url: string;
   api_key: string;
   model: string;
 }
 
 export interface AiSettingsMasked {
-  active_provider: "deepseek" | "custom";
+  active_provider: string;
   providers: AiProviderSettingsMasked[];
 }
 
 export interface AiProviderSettingsMasked {
-  provider: "deepseek" | "custom";
+  provider: string;
   base_url: string;
   model: string;
   api_key_masked: string;

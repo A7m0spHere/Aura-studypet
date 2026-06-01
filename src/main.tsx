@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import App from "./App";
+import { PetContextMenu } from "./components/PetContextMenu";
 import { PetWindow } from "./components/PetWindow";
 import "./styles.css";
 
@@ -18,6 +19,12 @@ function currentWindowLabel() {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {currentWindowLabel() === "pet" ? <PetWindow /> : <App />}
+    {currentWindowLabel() === "pet" ? (
+      <PetWindow />
+    ) : currentWindowLabel() === "pet-menu" ? (
+      <PetContextMenu />
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 );

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
+import type React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -22,7 +23,24 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/event", () => ({
   emitTo: vi.fn(() => Promise.resolve()),
+  listen: vi.fn(() => Promise.resolve(vi.fn())),
 }));
+
+vi.mock("recharts", () => {
+  const Chart = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+  const Leaf = () => null;
+  return {
+    ResponsiveContainer: Chart,
+    LineChart: Chart,
+    BarChart: Chart,
+    CartesianGrid: Leaf,
+    Tooltip: Leaf,
+    XAxis: Leaf,
+    YAxis: Leaf,
+    Line: Leaf,
+    Bar: Leaf,
+  };
+});
 
 function dashboard(overrides: Partial<DashboardState> = {}): DashboardState {
   return {
@@ -57,14 +75,16 @@ const preferences: AppPreferences = {
 
 const petPreferences: PetPreferences = {
   pet_enabled: false,
-  pet_name: "Aura",
+  pet_name: "",
   pet_persona_prompt: "",
   pet_bubble_enabled: true,
   proactive_ai_enabled: false,
   idle_nudge_minutes: 30,
   app_switch_nudge_enabled: true,
-  active_pet_id: "default-aura",
+  active_pet_id: "",
   first_pet_enable_seen: false,
+  pet_always_on_top: true,
+  pet_scale: 1,
 };
 
 function installDefaultMocks(status: DashboardState = dashboard()) {
@@ -110,7 +130,7 @@ describe("App", () => {
   it("does not show pet wake button in header when pet is disabled", async () => {
     render(<App />);
 
-    await screen.findByText("桌宠未启用 · Aura");
+    await screen.findByText("桌宠未启用 · 未选择宠物");
     expect(screen.queryAllByRole("button", { name: /显示桌宠/ })).toHaveLength(1);
     expect(screen.getByRole("button", { name: /显示桌宠/ })).toBeDisabled();
   });
@@ -119,6 +139,7 @@ describe("App", () => {
     installDefaultMocks(
       dashboard({
         session_status: "studying",
+        active_report_id: 99,
         today_study_seconds: 125,
         current_session_seconds: 5,
         current_app: "Code",

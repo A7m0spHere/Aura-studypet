@@ -1103,6 +1103,12 @@ fn bool_value(value: bool) -> &'static str {
 
 pub fn normalize_emotion(value: &str) -> &'static str {
     match value.trim() {
+        "walk_right" => "walk_right",
+        "walk_left" => "walk_left",
+        "greet" => "greet",
+        "jump" => "jump",
+        "scold" => "scold",
+        "talk" => "talk",
         "studying" => "studying",
         "thinking" => "thinking",
         "happy" => "happy",
