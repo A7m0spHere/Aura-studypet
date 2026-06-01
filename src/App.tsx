@@ -362,10 +362,10 @@ export default function App() {
   const pomodoroRemaining = dashboard?.pomodoro.remaining_seconds ?? pomodoroMinutes * 60;
 
   return (
-    <main className="min-h-screen bg-paper text-ink">
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-paper/95 px-6 py-4 backdrop-blur">
+    <main className="app-shell">
+      <header className="app-header">
         <div className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-md bg-ink text-paper">
+          <div className="brand-mark">
             <AuraMark />
           </div>
           <div>
@@ -374,7 +374,7 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold text-ink/70">
+          <span className="status-pill">
             {statusLabel(dashboard?.session_status)}
           </span>
           <button
@@ -406,7 +406,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="grid gap-5 p-6 xl:grid-cols-[330px_minmax(420px,1fr)_380px]">
+      <div className="dashboard-grid">
         <section className="space-y-5">
           <FoldPanel title="专注计时" defaultOpen>
             <div className="flex items-start justify-between gap-3">

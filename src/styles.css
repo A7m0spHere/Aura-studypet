@@ -9,7 +9,7 @@
 body {
   margin: 0;
   min-width: 960px;
-  background: #f7f4ee;
+  background: #f4f6f2;
 }
 
 body:has(.pet-window) {
@@ -35,27 +35,59 @@ button:disabled {
 }
 
 @layer components {
+  .app-shell {
+    @apply min-h-screen bg-paper text-ink;
+    background:
+      radial-gradient(circle at 82% 10%, rgb(47 111 94 / 0.1), transparent 28rem),
+      linear-gradient(180deg, #f8faf5 0%, #eef2ec 100%);
+  }
+
+  .app-header {
+    @apply sticky top-0 z-30 flex items-center justify-between border-b border-line bg-surface/90 px-6 py-4 shadow-inset backdrop-blur-xl;
+  }
+
+  .brand-mark {
+    @apply grid h-10 w-10 place-items-center rounded-md bg-ink text-paper shadow-sm;
+  }
+
+  .status-pill,
+  .quiet-pill {
+    @apply rounded-md border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink/70 shadow-inset;
+  }
+
+  .quiet-pill {
+    @apply px-2 py-1 text-xs;
+  }
+
+  .dashboard-grid {
+    @apply grid gap-5 p-6 xl:grid-cols-[330px_minmax(420px,1fr)_380px];
+  }
+
   .primary-button,
   .secondary-button,
   .danger-button,
   .icon-button {
-    @apply inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors;
+    @apply inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-all duration-150;
   }
 
   .primary-button {
-    @apply border-moss bg-moss text-white hover:bg-moss/90;
+    @apply border-moss bg-moss text-white shadow-sm hover:bg-moss/90 active:translate-y-px;
   }
 
   .secondary-button {
-    @apply border-line bg-white text-ink hover:border-moss/50 hover:bg-paper;
+    @apply border-line bg-surface-strong text-ink shadow-inset hover:border-moss/45 hover:bg-surface active:translate-y-px;
   }
 
   .danger-button {
-    @apply border-tomato bg-tomato text-white hover:bg-tomato/90;
+    @apply border-tomato bg-tomato text-white shadow-sm hover:bg-tomato/90 active:translate-y-px;
   }
 
   .icon-button {
-    @apply w-10 justify-center border-line bg-white p-0 text-ink hover:border-moss/50 hover:bg-paper;
+    @apply w-10 justify-center border-line bg-surface-strong p-0 text-ink shadow-inset hover:border-moss/50 hover:bg-surface;
+  }
+
+  .compact-button {
+    @apply h-8 px-2 py-1 text-xs;
   }
 
   .field {
@@ -64,19 +96,19 @@ button:disabled {
 
   .field input,
   .field select {
-    @apply h-10 w-full rounded-md border border-line bg-white px-3 text-sm font-normal text-ink outline-none focus:border-moss;
+    @apply h-10 w-full rounded-md border border-line bg-surface-strong px-3 text-sm font-normal text-ink outline-none transition-colors focus:border-moss focus:ring-2 focus:ring-moss/10;
   }
 
   .chat-bubble {
-    @apply max-w-[88%] rounded-md px-3 py-2 text-sm leading-6;
+    @apply max-w-[88%] rounded-md px-3 py-2 text-sm leading-6 shadow-inset;
   }
 
   .fold-panel {
-    @apply rounded-lg border border-line bg-white/85 shadow-panel;
+    @apply rounded-lg border border-line bg-surface/90 shadow-panel shadow-inset;
   }
 
   .fold-panel-moss {
-    @apply border-moss/25 bg-white/90;
+    @apply border-moss/25 bg-surface/95;
   }
 
   .fold-panel-summary {
@@ -97,6 +129,66 @@ button:disabled {
 
   .fold-panel-body {
     @apply border-t border-line p-5;
+  }
+
+  .metric-tile {
+    @apply rounded-lg border border-line bg-surface/90 p-4 shadow-panel shadow-inset;
+  }
+
+  .metric-label {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-ink/45;
+  }
+
+  .metric-value {
+    @apply mt-2 text-2xl font-semibold tabular-nums;
+  }
+
+  .metric-hint {
+    @apply mt-1 truncate text-sm text-ink/55;
+  }
+
+  .metric-icon {
+    @apply grid h-8 w-8 shrink-0 place-items-center rounded-md border border-line bg-paper text-moss shadow-inset;
+  }
+
+  .dialog-backdrop {
+    @apply fixed inset-0 z-50 grid place-items-center bg-ink/35 p-6 backdrop-blur-sm;
+  }
+
+  .dialog-surface {
+    @apply overflow-hidden rounded-lg border border-line bg-paper shadow-panel;
+  }
+
+  .history-dialog {
+    @apply max-h-[82vh] w-full max-w-3xl;
+  }
+
+  .privacy-dialog {
+    @apply w-full max-w-2xl;
+  }
+
+  .dialog-header {
+    @apply flex items-center justify-between border-b border-line bg-surface/80 px-5 py-4;
+  }
+
+  .dialog-scroll {
+    @apply max-h-[64vh] overflow-auto p-5;
+  }
+
+  .dialog-footer {
+    @apply flex justify-end gap-2 border-t border-line bg-surface/60 px-5 py-4;
+  }
+
+  .dialog-icon {
+    @apply grid h-10 w-10 place-items-center rounded-md bg-moss text-white shadow-sm;
+  }
+
+  .report-card {
+    @apply rounded-lg border border-line bg-surface-strong p-4 shadow-inset;
+  }
+
+  .empty-note {
+    @apply rounded-md border border-dashed border-line-strong bg-surface p-4 text-sm leading-6 text-ink/60;
   }
 
   .settings-shell {
