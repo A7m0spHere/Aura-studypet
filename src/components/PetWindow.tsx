@@ -91,9 +91,6 @@ export function PetWindow() {
       ]);
       setDashboard(nextDashboard);
       setProfiles(nextProfiles);
-      if (nextPreferences.pet_bubble_enabled) {
-        setBubble((current) => current || messageForStatus(nextDashboard.session_status));
-      }
     } catch {
       setBubble("Aura 正在整理状态，稍等一下。");
     }
@@ -118,12 +115,6 @@ export function PetWindow() {
     });
     return () => unlisten?.();
   }, [petDispatch]);
-
-  useEffect(() => {
-    if (preferences.pet_bubble_enabled) {
-      setBubble(messageForStatus(dashboard?.session_status));
-    }
-  }, [dashboard?.session_status, preferences.pet_bubble_enabled]);
 
   useEffect(() => {
     return () => {

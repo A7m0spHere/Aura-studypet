@@ -194,6 +194,28 @@ describe("PetWindow", () => {
     expect(await screen.findByText("Legacy event text")).toBeInTheDocument();
   });
 
+  it("does not auto-show the studying status bubble after refresh", async () => {
+    apiMock.getCurrentStatus.mockResolvedValue(dashboard({ session_status: "studying" }));
+    vi.useFakeTimers();
+    render(<PetWindow />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("我在记录这段专注时间。")).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("我在记录这段专注时间。")).not.toBeInTheDocument();
+  });
+
   it("uses custom pointer dragging instead of native window dragging", async () => {
     render(<PetWindow />);
 
