@@ -1,33 +1,33 @@
-StudyPulse 使用手册
+Aura 使用说明
 版本：__VERSION__
 平台：Windows 桌面端
 
 一、安装包文件说明
 
-1. StudyPulse_Setup___VERSION___x64.msi
-   StudyPulse 主程序安装包，双击后按提示安装。
+1. Aura_Setup___VERSION___x64.msi
+   Aura 主程序安装包，双击后按提示安装。
 
-2. StudyPulse-Test-Code-Signing.cer
+2. Aura-Test-Code-Signing.cer
    自签名测试证书。它只能减少少量测试电脑上的信任提示，不能完全消除 Windows SmartScreen 提示。
 
-3. StudyPulse_User_Manual_CN.txt
-   当前文件，说明安装、启动、使用和常见问题。
+3. Aura_User_Manual_CN.txt
+   当前文件，说明安装、启动、使用、桌宠配置和常见问题。
 
-4. StudyPulse_Changelog_CN.txt
+4. Aura_Changelog_CN.txt
    当前版本的更新和修改说明。
 
 二、安装步骤
 
 1. 解压 ZIP 压缩包。
-2. 双击 StudyPulse_Setup___VERSION___x64.msi。
+2. 双击 Aura_Setup___VERSION___x64.msi。
 3. 按安装向导完成安装。
 4. 如果 Windows 出现安全提示，可以点击“更多信息”，再选择“仍要运行”。
 
 三、可选：导入测试证书
 
-如果是给少量测试用户使用，可以先导入 StudyPulse-Test-Code-Signing.cer：
+如果是给少量测试用户使用，可以先导入 Aura-Test-Code-Signing.cer：
 
-1. 双击 StudyPulse-Test-Code-Signing.cer。
+1. 双击 Aura-Test-Code-Signing.cer。
 2. 选择“安装证书”。
 3. 存储位置选择“当前用户”。
 4. 选择“将所有的证书都放入下列存储”。
@@ -38,22 +38,63 @@ StudyPulse 使用手册
 
 四、基本使用流程
 
-1. 打开 StudyPulse。
+1. 打开 Aura。
 2. 首次启动时阅读隐私说明并确认。
-3. 点击“开始学习”，程序开始记录本次学习会话。
+3. 点击“开始学习”，程序开始记录本次学习或工作会话。
 4. 学习过程中可以使用番茄钟，查看当前应用、应用使用排行和键鼠活跃度。
 5. 点击“结束学习”，程序生成本地日报。
 6. 在“历史日报”中查看最近记录，支持按日期浏览、删除和导出 TXT/Markdown。
-7. 如需 AI 总结，可在设置中配置 DeepSeek 或自定义 OpenAI 兼容 API。
+7. 如需 AI 总结，可在“设置 > AI 配置”中配置 DeepSeek 或自定义 OpenAI 兼容 API。
 8. 点击“生成 AI 总结”后，可以继续在聊天框中追问本次学习情况。
 
-五、AI 配置说明
+五、设置页
 
-StudyPulse __VERSION__ 不提供内置公益 API。
+Aura __VERSION__ 将设置作为主工作区页面展示，可以从左侧导航或右上角设置按钮进入。
+
+1. 通用设置
+   可调整默认番茄钟时长、键鼠活跃度统计开关等偏好。
+
+2. Aura 桌宠
+   可启用或隐藏桌宠，导入宠物文件夹，刷新宠物列表，切换当前宠物，编辑桌宠名称和 persona。
+
+3. AI 配置
+   可配置 DeepSeek 或自定义 OpenAI 兼容 API，测试连接，并检测可用模型。
+
+4. 隐私与数据
+   可查看隐私边界、本地数据目录，打开数据目录或清空本地学习数据。
+
+六、桌宠使用
+
+1. 进入“设置 > Aura 桌宠”。
+2. 点击“导入宠物文件夹”，选择包含 pet.json 的宠物目录。
+3. 点击“刷新列表”，确认宠物已被扫描到。
+4. 在“当前宠物”下拉框中选择宠物。
+5. 启用桌宠后，可以点击“显示桌宠”让它出现在桌面上。
+6. 点击“预览动作”可以单独检查待机、行走、挥手、跳跃、完成、等待、提醒和对话动作。
+
+如果刷新列表时出现提示，请优先检查 pet.json、spritesheet.webp、动作图路径和 atlasMotionRows 行号。
+
+七、桌宠素材格式
+
+Aura 支持两类桌宠素材：
+
+1. 单张动作图
+   在 pet.json 的 sprites 字段中分别声明 idle、walk_right、walk_left、greet、jump、happy、thinking、scold、talk 等动作图片。
+
+2. 图集素材
+   在 pet.json 中声明 spritesheetPath，或在宠物目录放置默认 spritesheet.webp。
+
+图集动作可通过 atlasMotionRows 自定义行号。支持的动作包括：
+idle、walk_right、walk_left、greet、jump、happy、thinking、scold、talk。
+
+pet.json 和 bubble-lines.json 支持 UTF-8 文件；如果文件带 UTF-8 BOM，Aura 也会自动兼容。
+
+八、AI 配置说明
+
+Aura __VERSION__ 不提供内置公益 API。
 
 1. DeepSeek 模式
    Base URL 固定为 https://api.deepseek.com
-   模型可选择 deepseek-v4-pro 或 deepseek-v4-flash
    API Key 需要用户自行填写。
 
 2. 自定义 OpenAI 兼容 API
@@ -61,9 +102,9 @@ StudyPulse __VERSION__ 不提供内置公益 API。
    可以点击“检测可用模型”，程序会请求 {base_url}/models 并显示可选模型。
    如果服务商不支持 /models，仍可手动输入模型名并保存。
 
-六、本地数据管理
+九、本地数据管理
 
-设置页中有“本地数据”区域：
+设置页中有“隐私与数据”区域：
 
 1. 可以查看 SQLite 数据库所在目录。
 2. 可以打开数据目录，方便备份或排查。
@@ -72,9 +113,9 @@ StudyPulse __VERSION__ 不提供内置公益 API。
 清空本地学习数据会删除学习会话、窗口采样、应用排行、活跃度事件、番茄钟事件、日报和聊天记录。
 清空操作不会删除 AI 设置和隐私确认状态。
 
-七、隐私说明
+十、隐私说明
 
-StudyPulse 默认把数据保存在本机 SQLite 数据库中。
+Aura 默认把数据保存在本机 SQLite 数据库中。
 
 - 不记录具体按键内容
 - 不记录输入文本
@@ -83,7 +124,7 @@ StudyPulse 默认把数据保存在本机 SQLite 数据库中。
 - 不主动上传本地采集数据
 - 只有用户主动生成 AI 总结或发送 AI 聊天消息时，才会把日报摘要发送到当前配置的 AI API
 
-八、常见问题
+十一、常见问题
 
 1. 为什么安装时有安全提示？
    当前安装包使用测试证书或未使用正式商业代码签名证书，Windows 可能仍会显示 SmartScreen 提示。
@@ -100,5 +141,8 @@ StudyPulse 默认把数据保存在本机 SQLite 数据库中。
 5. 清空本地数据会删除 API Key 吗？
    不会。清空操作只删除学习相关数据，AI 设置会保留。
 
-6. 如何卸载？
-   在 Windows 设置中进入“应用”，找到 StudyPulse 后选择卸载。
+6. 宠物导入后看不到怎么办？
+   请进入“设置 > Aura 桌宠”，点击“刷新列表”，根据扫描提示检查 pet.json 和素材路径。确认当前宠物有效后，再点击“显示桌宠”。
+
+7. 如何卸载？
+   在 Windows 设置中进入“应用”，找到 Aura 后选择卸载。

@@ -1,4 +1,4 @@
-import { Eye, EyeOff, FolderOpen, RefreshCw } from "lucide-react";
+import { Clapperboard, Eye, EyeOff, FolderOpen, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { DEFAULT_PET_PREFERENCES } from "../lib/defaults";
@@ -12,7 +12,16 @@ const defaultPetPreferences: PetPreferences = {
   pet_persona_prompt: defaultPersona,
 };
 
-export function PetSettingsPanel() {
+interface PetSettingsPanelProps {
+  onPreviewActions?: () => void;
+  onPreferencesSaved?: (preferences: PetPreferences) => void;
+}
+
+function defaultPersonaForPet(name: string) {
+  return `你是 ${name}，Aura Companion 的桌面 AI 伙伴。你的性格：温柔、可爱、带一点孩子气、偶尔认真、鼓励型、轻微吐槽型。你的回复风格：简短、可爱、和编程有关，不要太幼稚，不要过度卖萌。你只能基于提供的行为摘要回应，不要编造；提醒用户时要克制、友好，不要攻击用户。每次回复尽量控制在 80 字以内。`;
+}
+
+export function PetSettingsPanel({ onPreviewActions, onPreferencesSaved }: PetSettingsPanelProps = {}) {
   const [preferences, setPreferences] = useState<PetPreferences>(defaultPetPreferences);
   const [profiles, setProfiles] = useState<PetProfile[]>([]);
   const [libraryDir, setLibraryDir] = useState("");
@@ -42,6 +51,7 @@ export function PetSettingsPanel() {
     () => profiles.find((profile) => profile.id === preferences.active_pet_id),
     [profiles, preferences.active_pet_id],
   );
+  const missingActiveProfile = Boolean(preferences.active_pet_id && profiles.length && !activeProfile);
   const activeSpriteCount = activeProfile ? Object.keys(activeProfile.sprites ?? {}).length : 0;
 
   async function save(next: PetPreferences, windowAction = true) {
@@ -50,6 +60,7 @@ export function PetSettingsPanel() {
     try {
       const saved = await api.savePetPreferences(next);
       setPreferences(saved);
+      onPreferencesSaved?.(saved);
       if (windowAction) {
         if (saved.pet_enabled) await api.showPetWindow();
         else await api.hidePetWindow();
@@ -96,9 +107,10 @@ export function PetSettingsPanel() {
     setBusy(true);
     setMessage("");
     try {
-      const nextProfiles = await api.rescanPetProfiles();
-      setProfiles(nextProfiles);
-      setMessage(`已刷新宠物列表，找到 ${nextProfiles.length} 个可用宠物。`);
+      const result = await api.rescanPetProfiles();
+      setProfiles(result.profiles);
+      const scanNote = result.messages.length ? ` ${result.messages.join("；")}` : "";
+      setMessage(`已刷新宠物列表，找到 ${result.profiles.length} 个可用宠物。${scanNote}`);
     } catch (error) {
       setMessage(String(error));
     } finally {
@@ -114,6 +126,15 @@ export function PetSettingsPanel() {
     } catch (error) {
       setMessage(String(error));
     }
+  }
+
+  function preferencesForProfile(profile: PetProfile): PetPreferences {
+    return {
+      ...preferences,
+      active_pet_id: profile.id,
+      pet_name: profile.display_name,
+      pet_persona_prompt: profile.persona?.trim() || defaultPersonaForPet(profile.display_name),
+    };
   }
 
   return (
@@ -138,7 +159,11 @@ export function PetSettingsPanel() {
         <div className="settings-info-grid">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
-              当前宠物：<strong className="font-semibold text-ink">{activeProfile?.display_name ?? "尚未导入宠物"}</strong>
+              当前宠物：
+              <strong className="font-semibold text-ink">
+                {activeProfile?.display_name ??
+                  (missingActiveProfile ? `${preferences.pet_name || preferences.active_pet_id}（配置存在，但宠物文件夹未通过扫描）` : "尚未导入宠物")}
+              </strong>
               {!preferences.pet_enabled ? "（已配置，尚未启用）" : ""}
             </span>
             <span>{activeProfile ? (activeSpriteCount ? `${activeSpriteCount} 个状态图` : "spritesheet 宠物") : "请先导入宠物文件夹"}</span>
@@ -154,6 +179,10 @@ export function PetSettingsPanel() {
           <button className="secondary-button" type="button" onClick={refreshProfiles} disabled={busy}>
             <RefreshCw size={16} />
             刷新列表
+          </button>
+          <button className="secondary-button" type="button" onClick={onPreviewActions} disabled={!activeProfile}>
+            <Clapperboard size={16} />
+            预览动作
           </button>
           <button className="secondary-button" type="button" onClick={() => api.showPetWindow()} disabled={!preferences.pet_enabled}>
             <Eye size={16} />
@@ -173,7 +202,10 @@ export function PetSettingsPanel() {
             <span>当前宠物</span>
             <select
               value={preferences.active_pet_id}
-              onChange={(event) => save({ ...preferences, active_pet_id: event.target.value }, false)}
+              onChange={(event) => {
+                const nextProfile = profiles.find((profile) => profile.id === event.target.value);
+                if (nextProfile) save(preferencesForProfile(nextProfile), false);
+              }}
             >
               {profiles.map((profile) => (
                 <option value={profile.id} key={profile.id}>

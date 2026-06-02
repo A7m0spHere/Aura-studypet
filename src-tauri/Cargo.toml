@@ -1,6 +1,6 @@
 [package]
 name = "aura"
-version = "0.2.3"
+version = "0.3.0"
 description = "Aura, formerly StudyPulse: an AI desktop companion with Pomodoro, local activity tracking, daily reports, and AI summaries."
 authors = ["Aura"]
 edition = "2021"

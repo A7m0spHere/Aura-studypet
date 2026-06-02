@@ -13,6 +13,7 @@ import type {
   DashboardState,
   PetPreferences,
   PetProfile,
+  PetProfileScanResult,
   PomodoroState,
   ProactivePetNudge,
   Session,
@@ -116,7 +117,7 @@ export const api = {
   importPetProfile: (folderPath: string) =>
     call<PetProfile>("import_pet_profile", { folder_path: folderPath }),
   getPetProfiles: () => call<PetProfile[]>("get_pet_profiles"),
-  rescanPetProfiles: () => call<PetProfile[]>("rescan_pet_profiles"),
+  rescanPetProfiles: () => call<PetProfileScanResult>("rescan_pet_profiles"),
   sendProactivePetNudge: (eventType: "idle_app" | "app_switch") =>
     call<ProactivePetNudge>("send_proactive_pet_nudge", { event_type: eventType }),
 };

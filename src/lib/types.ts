@@ -78,6 +78,17 @@ export interface PetPreferences {
   pet_scale: number;
 }
 
+export type PetAtlasMotionName =
+  | "idle"
+  | "walk_right"
+  | "walk_left"
+  | "greet"
+  | "jump"
+  | "happy"
+  | "thinking"
+  | "scold"
+  | "talk";
+
 export interface PetProfile {
   id: string;
   display_name: string;
@@ -85,11 +96,17 @@ export interface PetProfile {
   spritesheet_path: string;
   sprites: PetSpriteMap;
   atlas?: PetAtlasMetadata | null;
+  atlas_motion_rows?: Partial<Record<PetAtlasMotionName, number>>;
   persona?: string | null;
   sprite_scale: number;
   theme_color?: string | null;
   default_emotion: PetEmotion;
   bubble_lines: string[];
+}
+
+export interface PetProfileScanResult {
+  profiles: PetProfile[];
+  messages: string[];
 }
 
 export interface PetAtlasMetadata {

@@ -32,7 +32,8 @@ import {
 } from "recharts";
 import { HistoryDialog, PrivacyDialog } from "./components/DashboardDialogs";
 import { AuraMark, MetricTile } from "./components/DashboardUi";
-import { SettingsModal } from "./components/SettingsModal";
+import { PetActionPreviewPanel } from "./components/PetActionPreviewWindow";
+import { SettingsPage } from "./components/SettingsModal";
 import { api, formatDuration } from "./lib/api";
 import { DEFAULT_APP_PREFERENCES, DEFAULT_PET_PREFERENCES } from "./lib/defaults";
 import type {
@@ -54,7 +55,7 @@ const toneLabels: Record<AiSummaryTone, string> = {
   strict: "严格监督",
 };
 
-type WorkspaceTab = "overview" | "focus" | "activity" | "apps" | "review" | "aura" | "pet";
+type WorkspaceTab = "overview" | "focus" | "activity" | "apps" | "review" | "aura" | "pet" | "settings";
 
 function todayLabel() {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -104,8 +105,8 @@ export default function App() {
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_APP_PREFERENCES);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>("overview");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"general" | "pet" | "ai" | "privacy-data" | undefined>();
+  const [petPreviewOpen, setPetPreviewOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -118,14 +119,19 @@ export default function App() {
   const lastPetApp = useRef("");
   const appEnteredAt = useRef(Date.now());
   const lastNudgeAt = useRef(0);
+  const refreshing = useRef(false);
 
   const pomodoroMinutes = preferences.default_pomodoro_minutes;
 
   async function refresh() {
+    if (refreshing.current || document.visibilityState === "hidden") return;
+    refreshing.current = true;
     try {
       setDashboard(await api.getCurrentStatus());
     } catch (refreshError) {
       setError(String(refreshError));
+    } finally {
+      refreshing.current = false;
     }
   }
 
@@ -170,10 +176,16 @@ export default function App() {
     loadReports();
     loadAuraMessages();
     const timer = window.setInterval(refresh, 1000);
-    const petTimer = window.setInterval(loadPetPreferences, 5000);
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refresh();
+        loadPetPreferences();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.clearInterval(timer);
-      window.clearInterval(petTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -182,7 +194,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     listen<"pet" | "ai" | "privacy-data">("open-settings", (event) => {
       setSettingsTab(event.payload);
-      setSettingsOpen(true);
+      setActiveWorkspaceTab("settings");
     }).then((value) => {
       unlisten = value;
     });
@@ -374,6 +386,7 @@ export default function App() {
     { id: "apps", label: "应用排行", icon: <BarChart3 size={18} /> },
     { id: "review", label: "复盘", icon: <MessageSquareText size={18} /> },
     { id: "aura", label: "Aura 对话", icon: <MessageSquareText size={18} /> },
+    { id: "settings", label: "设置", icon: <Settings size={18} /> },
   ];
 
   return (
@@ -412,7 +425,7 @@ export default function App() {
             className="icon-button"
             onClick={() => {
               setSettingsTab(undefined);
-              setSettingsOpen(true);
+              setActiveWorkspaceTab("settings");
             }}
             aria-label="打开设置"
           >
@@ -428,24 +441,16 @@ export default function App() {
               <button
                 className={activeWorkspaceTab === item.id ? "console-nav-item console-nav-item-active" : "console-nav-item"}
                 key={item.id}
-                onClick={() => setActiveWorkspaceTab(item.id)}
+                onClick={() => {
+                  if (item.id === "settings") setSettingsTab(undefined);
+                  setActiveWorkspaceTab(item.id);
+                }}
                 type="button"
               >
                 {item.icon}
                 <span>{item.label}</span>
               </button>
             ))}
-            <button
-              className="console-nav-item"
-              onClick={() => {
-                setSettingsTab(undefined);
-                setSettingsOpen(true);
-              }}
-              type="button"
-            >
-              <Settings size={18} />
-              <span>设置</span>
-            </button>
           </nav>
 
           <div className="console-sidebar-footer">
@@ -859,7 +864,7 @@ export default function App() {
                     className="secondary-button"
                     onClick={() => {
                       setSettingsTab("pet");
-                      setSettingsOpen(true);
+                      setActiveWorkspaceTab("settings");
                     }}
                   >
                     <Settings size={16} />
@@ -867,6 +872,26 @@ export default function App() {
                   </button>
                 </div>
               </section>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "settings" ? (
+            <section className="console-page console-page-settings">
+              <SettingsPage
+                active={activeWorkspaceTab === "settings"}
+                onShowPrivacy={() => setPrivacyOpen(true)}
+                initialTab={settingsTab}
+                preferences={preferences}
+                onSavePreferences={savePreferences}
+                onPreviewPetActions={() => setPetPreviewOpen(true)}
+                onPetPreferencesSaved={setPetPreferences}
+                onDataCleared={() => {
+                  setLastReport(null);
+                  setMessages([]);
+                  loadReports();
+                  refresh();
+                }}
+              />
             </section>
           ) : null}
         </section>
@@ -889,23 +914,11 @@ export default function App() {
         />
       ) : null}
       {error ? <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-ink px-4 py-3 text-sm text-white">{error}</div> : null}
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => {
-          setSettingsOpen(false);
-          setSettingsTab(undefined);
-        }}
-        onShowPrivacy={() => setPrivacyOpen(true)}
-        initialTab={settingsTab}
-        preferences={preferences}
-        onSavePreferences={savePreferences}
-        onDataCleared={() => {
-          setLastReport(null);
-          setMessages([]);
-          loadReports();
-          refresh();
-        }}
-      />
+      {petPreviewOpen ? (
+        <div className="pet-preview-overlay" role="dialog" aria-modal="true" aria-label="桌宠动作预览">
+          <PetActionPreviewPanel onClose={() => setPetPreviewOpen(false)} />
+        </div>
+      ) : null}
     </main>
   );
 }

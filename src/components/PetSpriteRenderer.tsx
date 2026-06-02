@@ -68,7 +68,7 @@ export function PetSpriteRenderer({
   );
   const spriteUrl = spritePath ? petAssetUrl(spritePath) : "";
   const spriteScale = profile?.sprite_scale ?? 1;
-  const atlasRow = ATLAS_ROWS_BY_ANIMATION[motion] ?? 0;
+  const atlasRow = profile?.atlas_motion_rows?.[motion] ?? ATLAS_ROWS_BY_ANIMATION[motion] ?? 0;
   const atlasFrames = useMemo(() => {
     if (staticSprite) return [0];
     const rows = profile?.atlas?.rows ?? [];

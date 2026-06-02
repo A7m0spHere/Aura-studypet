@@ -678,12 +678,32 @@ button:disabled {
     @apply flex max-h-[84vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-line bg-paper shadow-panel shadow-inset;
   }
 
+  .settings-shell-page {
+    @apply h-full max-h-none max-w-none rounded-none border-0 bg-transparent shadow-none;
+  }
+
+  .settings-modal-frame {
+    @apply relative w-full max-w-4xl;
+  }
+
+  .settings-modal-close {
+    @apply absolute right-4 top-4 z-10;
+  }
+
   .settings-header {
     @apply flex items-center justify-between border-b border-line bg-surface/90 px-5 py-4;
   }
 
+  .settings-page-header {
+    @apply rounded-lg border border-line bg-surface/90 shadow-inset;
+  }
+
   .settings-body {
     @apply grid min-h-0 flex-1 grid-cols-[214px_minmax(0,1fr)];
+  }
+
+  .settings-body-page {
+    @apply mt-3 flex min-h-0 flex-1 flex-col;
   }
 
   .settings-nav {
@@ -698,8 +718,24 @@ button:disabled {
     @apply border-line bg-surface-strong text-ink shadow-inset;
   }
 
+  .settings-tabs {
+    @apply flex flex-wrap gap-2 rounded-lg border border-line bg-surface/80 p-2 shadow-inset;
+  }
+
+  .settings-tab {
+    @apply flex min-h-10 items-center gap-2 rounded-md border border-transparent px-3 py-2 text-left text-sm font-semibold text-ink/65 transition-colors hover:border-line hover:bg-surface-strong hover:text-ink;
+  }
+
+  .settings-tab-active {
+    @apply border-moss/30 bg-moss/10 text-moss shadow-inset;
+  }
+
   .settings-content {
     @apply flex min-h-0 flex-col;
+  }
+
+  .settings-body-page .settings-content {
+    @apply mt-3 flex-1 overflow-hidden rounded-lg border border-line bg-paper shadow-inset;
   }
 
   .settings-content-head {
@@ -962,6 +998,119 @@ button:disabled {
   .pet-menu-danger .pet-menu-icon {
     @apply text-tomato;
   }
+
+  .pet-preview-overlay {
+    @apply fixed inset-0 z-40 grid place-items-center bg-ink/35 p-5 backdrop-blur-sm;
+  }
+
+  .pet-preview-shell {
+    @apply grid min-h-screen gap-5 bg-paper p-5 text-ink;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    background:
+      radial-gradient(circle at 18% 12%, rgb(47 111 94 / 0.08), transparent 26rem),
+      linear-gradient(180deg, #fbfcf8 0%, #eef3ee 100%);
+  }
+
+  .pet-preview-overlay .pet-preview-shell {
+    @apply min-h-0 w-full max-w-5xl overflow-hidden rounded-lg border border-line shadow-panel;
+    height: min(640px, calc(100vh - 40px));
+  }
+
+  .pet-preview-panel {
+    @apply min-w-0 rounded-lg border border-line bg-surface/90 shadow-panel shadow-inset;
+  }
+
+  .pet-preview-stage-panel {
+    @apply flex min-h-0 flex-col p-5;
+  }
+
+  .pet-preview-heading {
+    @apply flex items-start justify-between gap-4;
+  }
+
+  .pet-preview-heading h1,
+  .pet-preview-action-head h2 {
+    @apply mt-1 text-2xl font-semibold leading-tight text-ink;
+  }
+
+  .pet-preview-stage {
+    @apply mt-5 grid min-h-[300px] flex-1 place-items-center overflow-hidden rounded-lg border border-line bg-paper shadow-inset;
+    background:
+      linear-gradient(90deg, rgb(217 222 214 / 0.42) 1px, transparent 1px),
+      linear-gradient(180deg, rgb(217 222 214 / 0.42) 1px, transparent 1px),
+      radial-gradient(circle at center, #ffffff 0%, #f4f6f2 70%);
+    background-size: 28px 28px, 28px 28px, auto;
+  }
+
+  .pet-preview-sprite-wrap {
+    @apply grid h-[310px] w-[310px] place-items-center;
+    transform: scale(1.35);
+    transform-origin: center;
+  }
+
+  .pet-preview-empty {
+    @apply grid place-items-center gap-2 rounded-md border border-dashed border-line-strong bg-surface/75 px-6 py-8 text-sm font-semibold text-ink/55;
+  }
+
+  .pet-preview-empty svg {
+    @apply text-moss;
+  }
+
+  .pet-preview-caption {
+    @apply mt-4 grid gap-3 sm:grid-cols-2;
+  }
+
+  .pet-preview-caption > div {
+    @apply rounded-md border border-line bg-paper px-3 py-2 shadow-inset;
+  }
+
+  .pet-preview-caption span {
+    @apply block text-xs font-semibold uppercase tracking-[0.12em] text-ink/45;
+  }
+
+  .pet-preview-caption strong {
+    @apply mt-1 block truncate text-base font-semibold text-ink;
+  }
+
+  .pet-preview-action-panel {
+    @apply flex min-h-0 flex-col p-4;
+  }
+
+  .pet-preview-action-head {
+    @apply border-b border-line pb-4;
+  }
+
+  .pet-preview-action-list {
+    @apply mt-3 grid min-h-0 gap-2 overflow-auto pr-1;
+  }
+
+  .pet-preview-action {
+    @apply grid min-h-16 w-full grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-md border border-line bg-paper px-3 py-2 text-left shadow-inset transition-colors hover:border-moss/45 hover:bg-surface-strong disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .pet-preview-action-active {
+    @apply border-moss/35 bg-moss/10 text-moss;
+  }
+
+  .pet-preview-action-icon {
+    @apply grid h-7 w-7 place-items-center rounded-md border border-line bg-surface text-moss;
+  }
+
+  .pet-preview-action-copy {
+    @apply min-w-0;
+  }
+
+  .pet-preview-action-copy strong {
+    @apply block truncate text-sm font-semibold text-ink;
+  }
+
+  .pet-preview-action-active .pet-preview-action-copy strong {
+    @apply text-moss;
+  }
+
+  .pet-preview-action-copy small {
+    @apply mt-0.5 block truncate text-xs font-normal text-ink/55;
+  }
 }
 
 @media (max-width: 920px) {
@@ -1004,6 +1153,12 @@ button:disabled {
   .rail-summary,
   .rail-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .pet-preview-shell {
+    grid-template-columns: 1fr;
   }
 }
 

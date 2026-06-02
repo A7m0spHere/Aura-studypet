@@ -217,7 +217,7 @@ pub(crate) fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
     if !manifest_path.is_file() {
         return Err("宠物文件夹缺少 pet.json。".into());
     }
-    let manifest_text = fs::read_to_string(&manifest_path).map_err(to_string)?;
+    let manifest_text = read_json_text(&manifest_path)?;
     let manifest: PetManifest = serde_json::from_str(&manifest_text)
         .map_err(|error| format!("pet.json 格式无效: {error}"))?;
     let id = sanitize_pet_id(&manifest.id)?;
@@ -225,7 +225,11 @@ pub(crate) fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
         return Err("pet.json 的 id 只能包含字母、数字、短横线和下划线。".into());
     }
     let spritesheet_path = if manifest.spritesheet_path.trim().is_empty() {
-        PathBuf::new()
+        if manifest.sprites.is_empty() && dir.join("spritesheet.webp").is_file() {
+            validate_pet_asset_path(dir, "spritesheet.webp", "spritesheetPath")?
+        } else {
+            PathBuf::new()
+        }
     } else {
         validate_pet_asset_path(dir, &manifest.spritesheet_path, "spritesheetPath")?
     };
@@ -244,6 +248,13 @@ pub(crate) fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
     } else {
         analyze_pet_atlas(&spritesheet_path).ok()
     };
+    let atlas_motion_rows = validate_atlas_motion_rows(
+        &manifest.atlas_motion_rows,
+        atlas
+            .as_ref()
+            .map(|metadata| metadata.row_count as usize)
+            .unwrap_or(PET_ATLAS_ROWS as usize),
+    )?;
 
     Ok(PetProfile {
         id,
@@ -252,6 +263,7 @@ pub(crate) fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
         spritesheet_path: spritesheet_path.to_string_lossy().to_string(),
         sprites,
         atlas,
+        atlas_motion_rows,
         persona: manifest.persona,
         sprite_scale: manifest.sprite_scale.clamp(0.2, 3.0),
         theme_color: manifest.theme_color,
@@ -261,12 +273,51 @@ pub(crate) fn read_pet_profile_from_dir(dir: &Path) -> AppResult<PetProfile> {
     })
 }
 
+pub(crate) fn read_json_text(path: &Path) -> AppResult<String> {
+    Ok(fs::read_to_string(path)
+        .map_err(to_string)?
+        .trim_start_matches('\u{feff}')
+        .to_string())
+}
+
+pub(crate) fn validate_atlas_motion_rows(
+    rows: &HashMap<String, usize>,
+    row_count: usize,
+) -> AppResult<HashMap<String, usize>> {
+    const VALID_MOTIONS: &[&str] = &[
+        "idle",
+        "walk_right",
+        "walk_left",
+        "greet",
+        "jump",
+        "happy",
+        "thinking",
+        "scold",
+        "talk",
+    ];
+
+    let mut normalized = HashMap::new();
+    for (motion, row) in rows {
+        if !VALID_MOTIONS.contains(&motion.as_str()) {
+            return Err(format!("atlasMotionRows 包含未知动作: {motion}"));
+        }
+        if *row >= row_count {
+            return Err(format!(
+                "atlasMotionRows.{motion} 的行号 {row} 超出范围 0..{}。",
+                row_count.saturating_sub(1)
+            ));
+        }
+        normalized.insert(motion.clone(), *row);
+    }
+    Ok(normalized)
+}
+
 fn read_bubble_lines(dir: &Path) -> AppResult<Vec<String>> {
     let path = dir.join("bubble-lines.json");
     if !path.is_file() {
         return Ok(Vec::new());
     }
-    let text = fs::read_to_string(path).map_err(to_string)?;
+    let text = read_json_text(&path)?;
     let manifest: BubbleLinesManifest = serde_json::from_str(&text)
         .map_err(|error| format!("bubble-lines.json 格式无效: {error}"))?;
     let lines = match manifest.lines {
@@ -289,7 +340,7 @@ pub(crate) fn pet_prompt_from_bubble_lines(dir: &Path) -> AppResult<Option<Strin
     if !path.is_file() {
         return Ok(None);
     }
-    let text = fs::read_to_string(path).map_err(to_string)?;
+    let text = read_json_text(&path)?;
     let manifest: BubbleLinesManifest = serde_json::from_str(&text)
         .map_err(|error| format!("bubble-lines.json 格式无效: {error}"))?;
     let name = manifest.name.unwrap_or_else(|| "Aura".into());
@@ -1561,6 +1612,120 @@ mod tests {
         assert_eq!(profile.id, "legacy");
         assert!(profile.spritesheet_path.ends_with("pet.png"));
         assert!(profile.sprites.is_empty());
+    }
+
+    #[test]
+    fn reads_manifest_with_implicit_default_spritesheet() {
+        let dir = temp_pet_dir("implicit-spritesheet");
+        fs::write(dir.join("spritesheet.webp"), b"fake").expect("spritesheet should write");
+        fs::write(
+            dir.join("pet.json"),
+            r#"{
+              "id": "implicit",
+              "displayName": "Implicit",
+              "description": "default spritesheet"
+            }"#,
+        )
+        .expect("manifest should write");
+
+        let profile = read_pet_profile_from_dir(&dir).expect("implicit profile should load");
+
+        assert_eq!(profile.id, "implicit");
+        assert!(profile.spritesheet_path.ends_with("spritesheet.webp"));
+        assert!(profile.sprites.is_empty());
+    }
+
+    #[test]
+    fn reads_pet_manifest_with_utf8_bom() {
+        let dir = temp_pet_dir("bom-pet");
+        fs::write(dir.join("spritesheet.webp"), b"fake").expect("spritesheet should write");
+        fs::write(
+            dir.join("pet.json"),
+            "\u{feff}{\"id\":\"bom\",\"displayName\":\"BOM\",\"description\":\"\",\"spritesheetPath\":\"spritesheet.webp\"}",
+        )
+        .expect("manifest should write");
+
+        let profile = read_pet_profile_from_dir(&dir).expect("bom manifest should load");
+
+        assert_eq!(profile.id, "bom");
+    }
+
+    #[test]
+    fn reads_bubble_lines_with_utf8_bom() {
+        let dir = temp_pet_dir("bom-bubble");
+        fs::write(
+            dir.join("bubble-lines.json"),
+            "\u{feff}{\"lines\":[\"hello\"]}",
+        )
+        .expect("bubble lines should write");
+
+        let lines = read_bubble_lines(&dir).expect("bom bubble lines should load");
+
+        assert_eq!(lines, vec!["hello"]);
+    }
+
+    #[test]
+    fn reads_pet_manifest_atlas_motion_rows() {
+        let dir = temp_pet_dir("motion-rows");
+        fs::write(dir.join("spritesheet.webp"), b"fake").expect("spritesheet should write");
+        fs::write(
+            dir.join("pet.json"),
+            r#"{
+              "id": "motion-rows",
+              "displayName": "Motion Rows",
+              "description": "custom rows",
+              "spritesheetPath": "spritesheet.webp",
+              "atlasMotionRows": {
+                "walk_right": 1,
+                "walk_left": 2
+              }
+            }"#,
+        )
+        .expect("manifest should write");
+
+        let profile = read_pet_profile_from_dir(&dir).expect("profile should load custom rows");
+
+        assert_eq!(profile.atlas_motion_rows.get("walk_right"), Some(&1));
+        assert_eq!(profile.atlas_motion_rows.get("walk_left"), Some(&2));
+    }
+
+    #[test]
+    fn rejects_pet_manifest_atlas_motion_row_out_of_range() {
+        let dir = temp_pet_dir("bad-motion-rows");
+        fs::write(dir.join("spritesheet.webp"), b"fake").expect("spritesheet should write");
+        fs::write(
+            dir.join("pet.json"),
+            r#"{
+              "id": "bad-motion-rows",
+              "displayName": "Bad Motion Rows",
+              "description": "custom rows",
+              "spritesheetPath": "spritesheet.webp",
+              "atlasMotionRows": {
+                "walk_right": 99
+              }
+            }"#,
+        )
+        .expect("manifest should write");
+
+        let error = read_pet_profile_from_dir(&dir).expect_err("out of range row should fail");
+
+        assert!(error.contains("atlasMotionRows.walk_right"));
+    }
+
+    #[test]
+    fn rejects_manifest_without_any_sprite_asset() {
+        let dir = temp_pet_dir("missing-spritesheet");
+        fs::write(
+            dir.join("pet.json"),
+            r#"{
+              "id": "missing",
+              "displayName": "Missing",
+              "description": "no sprites"
+            }"#,
+        )
+        .expect("manifest should write");
+
+        assert!(read_pet_profile_from_dir(&dir).is_err());
     }
 
     #[test]

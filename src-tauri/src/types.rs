@@ -150,11 +150,18 @@ pub struct PetProfile {
     pub spritesheet_path: String,
     pub sprites: HashMap<String, String>,
     pub atlas: Option<PetAtlasMetadata>,
+    pub atlas_motion_rows: HashMap<String, usize>,
     pub persona: Option<String>,
     pub sprite_scale: f64,
     pub theme_color: Option<String>,
     pub default_emotion: String,
     pub bubble_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PetProfileScanResult {
+    pub profiles: Vec<PetProfile>,
+    pub messages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,9 +179,12 @@ pub(crate) struct PetManifest {
     pub id: String,
     pub display_name: String,
     pub description: String,
+    #[serde(default)]
     pub spritesheet_path: String,
     #[serde(default)]
     pub sprites: HashMap<String, String>,
+    #[serde(default)]
+    pub atlas_motion_rows: HashMap<String, usize>,
     pub persona: Option<String>,
     #[serde(default = "default_sprite_scale")]
     pub sprite_scale: f64,

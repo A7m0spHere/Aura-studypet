@@ -19,17 +19,24 @@ import type {
   AiSettingsInput,
   AiSettingsMasked,
   AppPreferences,
+  PetPreferences,
 } from "../lib/types";
 import { PetSettingsPanel } from "./PetSettingsPanel";
 
-interface SettingsModalProps {
-  open: boolean;
-  onClose: () => void;
+interface SettingsPageProps {
+  active?: boolean;
   onShowPrivacy: () => void;
   initialTab?: SettingsTab;
   preferences: AppPreferences;
   onSavePreferences: (preferences: AppPreferences) => Promise<void>;
   onDataCleared?: () => void;
+  onPreviewPetActions?: () => void;
+  onPetPreferencesSaved?: (preferences: PetPreferences) => void;
+}
+
+interface SettingsModalProps extends SettingsPageProps {
+  open: boolean;
+  onClose: () => void;
 }
 
 type AiProvider = string;
@@ -65,15 +72,16 @@ const SETTINGS_TABS: Array<{
   { id: "privacy-data", label: "隐私与数据", description: "边界说明与本地数据", icon: Shield },
 ];
 
-export function SettingsModal({
-  open,
-  onClose,
+export function SettingsPage({
+  active = true,
   onShowPrivacy,
   initialTab,
   preferences,
   onSavePreferences,
   onDataCleared,
-}: SettingsModalProps) {
+  onPreviewPetActions,
+  onPetPreferencesSaved,
+}: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [activeProvider, setActiveProvider] = useState<AiProvider>("deepseek");
   const [forms, setForms] = useState<AiForms>(cloneDefaultForms());
@@ -87,7 +95,7 @@ export function SettingsModal({
   const [clearingData, setClearingData] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     setMessage("");
     setTestMessage("");
     setCustomModels([]);
@@ -103,7 +111,16 @@ export function SettingsModal({
         setCustomModels(active?.available_models ?? []);
       })
       .catch((error) => setMessage(String(error)));
-  }, [open, initialTab]);
+  }, [active, initialTab]);
+
+  useEffect(() => {
+    if (!message && !testMessage) return;
+    const timer = window.setTimeout(() => {
+      setMessage("");
+      setTestMessage("");
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [message, testMessage]);
 
   const activeSettings = forms[activeProvider] ?? DEFAULT_FORMS.deepseek;
   const activeMasked = useMemo(
@@ -111,8 +128,6 @@ export function SettingsModal({
     [activeProvider, masked],
   );
   const activeTabMeta = SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0];
-
-  if (!open) return null;
 
   function updateActiveForm(patch: Partial<AiSettingsInput>) {
     setForms((current) => ({
@@ -253,27 +268,23 @@ export function SettingsModal({
   const apiKeyPlaceholder = apiKeyPlaceholderFor(activeMasked);
 
   return (
-    <div className="dialog-backdrop">
-      <section className="settings-shell">
-        <header className="settings-header">
+      <section className="settings-shell settings-shell-page">
+        <header className="settings-header settings-page-header">
           <div>
             <h2 className="text-lg font-semibold text-ink">设置</h2>
             <p className="text-sm text-ink/60">管理桌宠、AI、采集开关和本地数据。</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭设置">
-            <X size={18} />
-          </button>
         </header>
 
-        <div className="settings-body">
-          <nav className="settings-nav" aria-label="设置分类">
+        <div className="settings-body settings-body-page">
+          <nav className="settings-tabs" aria-label="设置分类">
             {SETTINGS_TABS.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   type="button"
-                  className={activeTab === tab.id ? "settings-nav-item settings-nav-item-active" : "settings-nav-item"}
+                  className={activeTab === tab.id ? "settings-tab settings-tab-active" : "settings-tab"}
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <Icon size={17} />
@@ -312,7 +323,12 @@ export function SettingsModal({
                 </SettingsSection>
               ) : null}
 
-              {activeTab === "pet" ? <PetSettingsPanel /> : null}
+              {activeTab === "pet" ? (
+                <PetSettingsPanel
+                  onPreviewActions={onPreviewPetActions}
+                  onPreferencesSaved={onPetPreferencesSaved}
+                />
+              ) : null}
 
               {activeTab === "ai" ? (
                 <div className="settings-stack">
@@ -493,6 +509,24 @@ export function SettingsModal({
           </main>
         </div>
       </section>
+  );
+}
+
+export function SettingsModal({
+  open,
+  onClose,
+  ...props
+}: SettingsModalProps) {
+  if (!open) return null;
+
+  return (
+    <div className="dialog-backdrop">
+      <div className="settings-modal-frame">
+        <button className="icon-button settings-modal-close" onClick={onClose} aria-label="关闭设置">
+          <X size={18} />
+        </button>
+        <SettingsPage active {...props} />
+      </div>
     </div>
   );
 }

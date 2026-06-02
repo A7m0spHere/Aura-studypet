@@ -540,30 +540,76 @@ pub(crate) fn import_pet_profile(folder_path: String, state: State<AppState>) ->
 
 #[tauri::command]
 pub(crate) fn get_pet_profiles(state: State<AppState>) -> AppResult<Vec<PetProfile>> {
+    Ok(scan_pet_profiles(&state)?.profiles)
+}
+
+#[tauri::command]
+pub(crate) fn rescan_pet_profiles(state: State<AppState>) -> AppResult<PetProfileScanResult> {
+    scan_pet_profiles(&state)
+}
+
+fn scan_pet_profiles(state: &State<AppState>) -> AppResult<PetProfileScanResult> {
     let mut profiles = Vec::new();
+    let mut messages = Vec::new();
     let pet_root = pet_library_dir(&state.data_dir);
     fs::create_dir_all(&pet_root).map_err(to_string)?;
     if !pet_root.is_dir() {
-        return Ok(profiles);
+        return Ok(PetProfileScanResult { profiles, messages });
     }
     for entry in fs::read_dir(&pet_root).map_err(to_string)? {
         let entry = entry.map_err(to_string)?;
         let path = entry.path();
         if path.is_dir() {
+            let folder_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("未知目录")
+                .to_string();
+            let inferred_default_spritesheet = pet_uses_implicit_default_spritesheet(&path);
             match read_pet_profile_from_dir(&path) {
-                Ok(profile) => profiles.push(profile),
-                Err(error) => eprintln!("[Aura Companion pet] ignored invalid pet: {error}"),
+                Ok(profile) => {
+                    if inferred_default_spritesheet {
+                        messages.push(format!(
+                            "{folder_name}：pet.json 未声明 spritesheetPath，已自动使用 spritesheet.webp。"
+                        ));
+                    }
+                    profiles.push(profile);
+                }
+                Err(error) => {
+                    let message = format!("{folder_name}：{error}");
+                    eprintln!("[Aura Companion pet] ignored invalid pet: {message}");
+                    messages.push(message);
+                }
             }
         }
     }
     profiles.sort_by(|a, b| a.display_name.cmp(&b.display_name));
     profiles.dedup_by(|a, b| a.id == b.id);
-    Ok(profiles)
+    Ok(PetProfileScanResult { profiles, messages })
 }
 
-#[tauri::command]
-pub(crate) fn rescan_pet_profiles(state: State<AppState>) -> AppResult<Vec<PetProfile>> {
-    get_pet_profiles(state)
+fn pet_uses_implicit_default_spritesheet(dir: &std::path::Path) -> bool {
+    if !dir.join("spritesheet.webp").is_file() {
+        return false;
+    }
+    let Ok(text) = fs::read_to_string(dir.join("pet.json")) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    let spritesheet_path_empty = value
+        .get("spritesheetPath")
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty();
+    let sprites_empty = value
+        .get("sprites")
+        .and_then(|item| item.as_object())
+        .map(|items| items.is_empty())
+        .unwrap_or(true);
+    spritesheet_path_empty && sprites_empty
 }
 
 #[tauri::command(rename_all = "snake_case")]

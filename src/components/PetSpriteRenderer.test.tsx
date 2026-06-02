@@ -19,6 +19,7 @@ const profile: PetProfile = {
     idle: "idle.png",
     happy: "happy.png",
   },
+  atlas_motion_rows: {},
   persona: null,
   sprite_scale: 1,
   theme_color: null,
@@ -111,6 +112,26 @@ describe("PetSpriteRenderer", () => {
       });
       unmount();
     }
+  });
+
+  it("lets a pet override atlas rows for specific motions", () => {
+    render(
+      <PetSpriteRenderer
+        animation="walk_right"
+        petName="Aura"
+        profile={{
+          ...atlasProfile,
+          atlas_motion_rows: {
+            walk_right: 1,
+            walk_left: 2,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "Aura" })).toHaveStyle({
+      backgroundPosition: "0px -208px",
+    });
   });
 
   it("does not render a builtin default pet when no sprite is available", () => {

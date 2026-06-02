@@ -18,6 +18,7 @@ globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserv
 const invokeMock = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (path: string) => `asset://${path}`,
   invoke: (command: string, args?: Record<string, unknown>) => invokeMock(command, args),
 }));
 
@@ -87,14 +88,46 @@ const petPreferences: PetPreferences = {
   pet_scale: 1,
 };
 
+const xinhuaProfile = {
+  id: "xinhua",
+  display_name: "心华",
+  description: "test pet",
+  spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+  sprites: { idle: "C:\\pets\\xinhua\\idle.png" },
+  persona: null,
+  sprite_scale: 1,
+  theme_color: null,
+  default_emotion: "idle",
+  bubble_lines: [],
+};
+
 function installDefaultMocks(status: DashboardState = dashboard()) {
   invokeMock.mockImplementation((command: string) => {
     if (command === "get_current_status" || command === "get_today_dashboard") return Promise.resolve(status);
     if (command === "get_app_preferences") return Promise.resolve(preferences);
     if (command === "get_recent_reports") return Promise.resolve([]);
     if (command === "get_pet_preferences") return Promise.resolve(petPreferences);
+    if (command === "get_pet_profiles") return Promise.resolve([xinhuaProfile]);
+    if (command === "get_pet_library_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app\\pets");
     if (command === "get_aura_chat_history") return Promise.resolve([]);
     if (command === "get_data_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app");
+    if (command === "get_ai_settings_masked") {
+      return Promise.resolve({
+        active_provider: "deepseek",
+        providers: [
+          {
+            provider: "deepseek",
+            base_url: "https://api.deepseek.com",
+            model: "deepseek-v4-pro",
+            api_key_masked: "",
+            configured: false,
+            available_models: ["deepseek-v4-pro", "deepseek-v4-flash"],
+            base_url_editable: false,
+            api_key_required: true,
+          },
+        ],
+      });
+    }
     if (command === "open_data_dir" || command === "clear_local_data") return Promise.resolve(undefined);
     if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\report.md");
     return Promise.resolve({});
@@ -126,6 +159,55 @@ describe("App", () => {
     expect(await screen.findByText("今日累计")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "生成 AI 总结" })).toBeDisabled();
     expect(await screen.findByText("开始专注并切换几个窗口后，这里会显示应用使用时长排行。")).toBeInTheDocument();
+  });
+
+  it("shows settings as an inline workspace page instead of a modal layer", async () => {
+    const { container } = render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "设置" }));
+
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /常规/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Aura 桌宠/ })).toBeInTheDocument();
+    expect(container.querySelector(".dialog-backdrop")).not.toBeInTheDocument();
+  });
+
+  it("opens the pet action preview as an inline overlay from pet settings", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "get_current_status" || command === "get_today_dashboard") return Promise.resolve(dashboard());
+      if (command === "get_app_preferences") return Promise.resolve(preferences);
+      if (command === "get_recent_reports") return Promise.resolve([]);
+      if (command === "get_pet_preferences") {
+        return Promise.resolve({
+          ...petPreferences,
+          pet_enabled: true,
+          pet_name: "心华",
+          active_pet_id: "xinhua",
+          first_pet_enable_seen: true,
+        });
+      }
+      if (command === "get_pet_profiles") return Promise.resolve([xinhuaProfile]);
+      if (command === "get_pet_library_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app\\pets");
+      if (command === "get_aura_chat_history") return Promise.resolve([]);
+      if (command === "get_data_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app");
+      if (command === "get_ai_settings_masked") {
+        return Promise.resolve({
+          active_provider: "deepseek",
+          providers: [],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "设置" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Aura 桌宠/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /预览动作/ }));
+
+    expect(await screen.findByRole("dialog", { name: "桌宠动作预览" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "桌宠动作预览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /跳跃/ })).toBeInTheDocument();
   });
 
   it("does not show pet wake button in header when pet is disabled", async () => {
