@@ -41,12 +41,29 @@ const emptyDashboard: DashboardState = {
   },
 };
 
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isStateNotReadyError(error: unknown) {
+  return String(error).includes("state not managed");
+}
+
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauriRuntime()) {
     if (command === "get_current_status" || command === "get_today_dashboard") {
       return emptyDashboard as T;
     }
     throw new Error("Aura needs to run inside the Tauri desktop app for this action.");
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      return await invoke<T>(command, args);
+    } catch (error) {
+      if (!isStateNotReadyError(error) || attempt === 7) throw error;
+      await wait(120);
+    }
   }
 
   return invoke<T>(command, args);
