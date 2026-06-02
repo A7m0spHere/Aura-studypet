@@ -1,4 +1,5 @@
 import {
+  emitTo,
   listen,
 } from "@tauri-apps/api/event";
 import {
@@ -100,6 +101,11 @@ export function PetContextMenu() {
     await api.showMainWindow(tab);
   }
 
+  async function encourageAura() {
+    const nudge = await api.sendProactivePetNudge("idle_app");
+    await emitTo("pet", "pet-bubble", { message: nudge.message, emotion: nudge.emotion });
+  }
+
   return (
     <main
       className="pet-menu-shell"
@@ -170,7 +176,7 @@ export function PetContextMenu() {
             <button onClick={() => run(async () => void (await api.startPomodoro(25)))} type="button">
               开始 25 分钟番茄钟
             </button>
-            <button onClick={() => run(() => api.sendProactivePetNudge("idle_app").then(() => undefined))} type="button">
+            <button onClick={() => run(encourageAura)} type="button">
               让 Aura 鼓励一下
             </button>
             <button

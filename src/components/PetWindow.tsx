@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { currentMonitor, cursorPosition, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
@@ -144,10 +145,10 @@ export function PetWindow() {
   }
 
   useEffect(() => {
-    if (!bubble || bubbleHovered || chatOpen) return;
-    const timer = window.setTimeout(() => setBubble(""), 4200);
+    if (!bubble || bubbleHovered) return;
+    const timer = window.setTimeout(() => setBubble(""), 4000);
     return () => window.clearTimeout(timer);
-  }, [bubble, bubbleHovered, chatOpen]);
+  }, [bubble, bubbleHovered]);
 
   useEffect(() => {
     if (bubble || chatSending) return;
@@ -330,6 +331,12 @@ export function PetWindow() {
     event.stopPropagation();
   }
 
+  function closeChat(event: SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setChatOpen(false);
+  }
+
   async function sendPetChat() {
     const content = chatInput.trim();
     if (!content || chatSending) return;
@@ -400,6 +407,9 @@ export function PetWindow() {
             sendPetChat();
           }}
         >
+          <button className="pet-chat-close" type="button" onClick={closeChat} aria-label="关闭聊天框">
+            <X size={13} />
+          </button>
           <input
             autoFocus
             value={chatInput}

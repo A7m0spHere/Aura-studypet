@@ -388,6 +388,44 @@ describe("PetWindow", () => {
     expect(await screen.findByText("我在。")).toBeInTheDocument();
   });
 
+  it("hides assistant bubbles after timeout while chat is open", async () => {
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.doubleClick(stage);
+    expect(await screen.findByPlaceholderText("和 Aura 说点什么")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    act(() => {
+      eventMock.listener?.({ payload: { message: "继续加油", emotion: "happy" } });
+    });
+
+    expect(screen.getByText("继续加油")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+
+    expect(screen.queryByText("继续加油")).not.toBeInTheDocument();
+  });
+
+  it("closes chat from the inline close button without sending or dragging", async () => {
+    render(<PetWindow />);
+
+    await screen.findByRole("img", { name: "Aura" });
+    const stage = document.querySelector(".pet-stage") as HTMLElement;
+    fireEvent.doubleClick(stage);
+
+    expect(await screen.findByPlaceholderText("和 Aura 说点什么")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭聊天框" }));
+
+    expect(screen.queryByPlaceholderText("和 Aura 说点什么")).not.toBeInTheDocument();
+    expect(apiMock.chatWithAura).not.toHaveBeenCalled();
+    expect(windowMock.setPosition).not.toHaveBeenCalled();
+    expect(apiMock.dragPetWindow).not.toHaveBeenCalled();
+  });
+
   it("plays thinking while waiting for AI and talk when the reply arrives", async () => {
     apiMock.getPetProfiles.mockResolvedValueOnce([atlasProfile]);
     let resolveReply: (value: {

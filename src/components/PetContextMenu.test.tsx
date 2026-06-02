@@ -23,6 +23,7 @@ const apiMock = vi.hoisted(() => ({
 
 const eventMock = vi.hoisted(() => ({
   listener: undefined as undefined | (() => void),
+  emitTo: vi.fn(),
 }));
 
 vi.mock("../lib/api", async () => {
@@ -34,6 +35,7 @@ vi.mock("../lib/api", async () => {
 });
 
 vi.mock("@tauri-apps/api/event", () => ({
+  emitTo: eventMock.emitTo,
   listen: vi.fn((_name: string, callback: () => void) => {
     eventMock.listener = callback;
     return Promise.resolve(vi.fn());
@@ -91,6 +93,12 @@ describe("PetContextMenu", () => {
       remaining_seconds: 25 * 60,
       completed_count: 1,
     });
+    apiMock.sendProactivePetNudge.mockResolvedValue({
+      message: "你已经做得很好了，继续保持。",
+      emotion: "happy",
+      event_type: "idle_app",
+      created_at: new Date().toISOString(),
+    });
   });
 
   afterEach(() => cleanup());
@@ -135,5 +143,19 @@ describe("PetContextMenu", () => {
     expect(await screen.findByText("今日状态：专注中")).toBeInTheDocument();
     await waitFor(() => expect(apiMock.getCurrentStatus).toHaveBeenCalledTimes(2));
     expect(apiMock.getPetPreferences).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends encouragement to the pet bubble from the quick menu", async () => {
+    render(<PetContextMenu />);
+
+    fireEvent.click(await screen.findByText("快捷菜单"));
+    fireEvent.click(screen.getByRole("button", { name: "让 Aura 鼓励一下" }));
+
+    await waitFor(() => expect(apiMock.sendProactivePetNudge).toHaveBeenCalledWith("idle_app"));
+    expect(eventMock.emitTo).toHaveBeenCalledWith("pet", "pet-bubble", {
+      message: "你已经做得很好了，继续保持。",
+      emotion: "happy",
+    });
+    expect(apiMock.hidePetMenu).toHaveBeenCalled();
   });
 });
