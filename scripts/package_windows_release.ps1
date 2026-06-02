@@ -1,20 +1,20 @@
 param(
-  [string]$Version = "0.2.3"
+  [string]$Version = "0.3.0"
 )
 
 $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $releaseRoot = Join-Path $root "release"
-$packageDir = Join-Path $releaseRoot "StudyPulse_$($Version)_x64_cn"
-$zipPath = Join-Path $releaseRoot "StudyPulse_$($Version)_x64_cn.zip"
-$sourceMsi = Join-Path $root "src-tauri\target\release\bundle\msi\StudyPulse_$($Version)_x64_en-US.msi"
-$friendlyMsi = Join-Path $packageDir "StudyPulse_Setup_$($Version)_x64.msi"
+$packageDir = Join-Path $releaseRoot "Aura_$($Version)_x64_cn"
+$zipPath = Join-Path $releaseRoot "Aura_$($Version)_x64_cn.zip"
+$sourceMsi = Join-Path $root "src-tauri\target\release\bundle\msi\Aura_$($Version)_x64_en-US.msi"
+$friendlyMsi = Join-Path $packageDir "Aura_Setup_$($Version)_x64.msi"
 $certificate = Join-Path $root "StudyPulse-Test-Code-Signing.cer"
 $manualTemplate = Join-Path $root "docs\studypulse_user_manual_cn.txt"
 $sourceChangelog = Join-Path $root "CHANGELOG.md"
-$manual = Join-Path $packageDir "StudyPulse_User_Manual_CN.txt"
-$changelog = Join-Path $packageDir "StudyPulse_Changelog_CN.txt"
+$manual = Join-Path $packageDir "Aura_User_Manual_CN.txt"
+$changelog = Join-Path $packageDir "Aura_Changelog_CN.txt"
 
 if (!(Test-Path -LiteralPath $sourceMsi)) {
   throw "MSI not found: $sourceMsi. Run npm run tauri build -- --bundles msi first."
@@ -38,7 +38,7 @@ if (Test-Path -LiteralPath $packageDir) {
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 
 Copy-Item -LiteralPath $sourceMsi -Destination $friendlyMsi -Force
-Copy-Item -LiteralPath $certificate -Destination (Join-Path $packageDir "StudyPulse-Test-Code-Signing.cer") -Force
+Copy-Item -LiteralPath $certificate -Destination (Join-Path $packageDir "Aura-Test-Code-Signing.cer") -Force
 Copy-Item -LiteralPath $sourceChangelog -Destination $changelog -Force
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
+import type React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { AppPreferences, DashboardState } from "./lib/types";
+import type { AppPreferences, DashboardState, PetPreferences } from "./lib/types";
 
 class ResizeObserverMock {
   observe() {}
@@ -17,16 +18,38 @@ globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserv
 const invokeMock = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (path: string) => `asset://${path}`,
   invoke: (command: string, args?: Record<string, unknown>) => invokeMock(command, args),
 }));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  emitTo: vi.fn(() => Promise.resolve()),
+  listen: vi.fn(() => Promise.resolve(vi.fn())),
+}));
+
+vi.mock("recharts", () => {
+  const Chart = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+  const Leaf = () => null;
+  return {
+    ResponsiveContainer: Chart,
+    LineChart: Chart,
+    BarChart: Chart,
+    CartesianGrid: Leaf,
+    Tooltip: Leaf,
+    XAxis: Leaf,
+    YAxis: Leaf,
+    Line: Leaf,
+    Bar: Leaf,
+  };
+});
 
 function dashboard(overrides: Partial<DashboardState> = {}): DashboardState {
   return {
     session_status: "idle",
     today_study_seconds: 0,
     current_session_seconds: 0,
-    current_app: "Not started",
-    current_window_title: "Start a study session to record the active window",
+    current_app: "尚未开始",
+    current_window_title: "开始后会显示当前窗口",
     keyboard_count: 0,
     mouse_count: 0,
     focus_score: 0,
@@ -51,6 +74,66 @@ const preferences: AppPreferences = {
   activity_capture_enabled: true,
 };
 
+const petPreferences: PetPreferences = {
+  pet_enabled: false,
+  pet_name: "",
+  pet_persona_prompt: "",
+  pet_bubble_enabled: true,
+  proactive_ai_enabled: false,
+  idle_nudge_minutes: 30,
+  app_switch_nudge_enabled: true,
+  active_pet_id: "",
+  first_pet_enable_seen: false,
+  pet_always_on_top: true,
+  pet_scale: 1,
+};
+
+const xinhuaProfile = {
+  id: "xinhua",
+  display_name: "心华",
+  description: "test pet",
+  spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+  sprites: { idle: "C:\\pets\\xinhua\\idle.png" },
+  persona: null,
+  sprite_scale: 1,
+  theme_color: null,
+  default_emotion: "idle",
+  bubble_lines: [],
+};
+
+function installDefaultMocks(status: DashboardState = dashboard()) {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === "get_current_status" || command === "get_today_dashboard") return Promise.resolve(status);
+    if (command === "get_app_preferences") return Promise.resolve(preferences);
+    if (command === "get_recent_reports") return Promise.resolve([]);
+    if (command === "get_pet_preferences") return Promise.resolve(petPreferences);
+    if (command === "get_pet_profiles") return Promise.resolve([xinhuaProfile]);
+    if (command === "get_pet_library_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app\\pets");
+    if (command === "get_aura_chat_history") return Promise.resolve([]);
+    if (command === "get_data_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app");
+    if (command === "get_ai_settings_masked") {
+      return Promise.resolve({
+        active_provider: "deepseek",
+        providers: [
+          {
+            provider: "deepseek",
+            base_url: "https://api.deepseek.com",
+            model: "deepseek-v4-pro",
+            api_key_masked: "",
+            configured: false,
+            available_models: ["deepseek-v4-pro", "deepseek-v4-flash"],
+            base_url_editable: false,
+            api_key_required: true,
+          },
+        ],
+      });
+    }
+    if (command === "open_data_dir" || command === "clear_local_data") return Promise.resolve(undefined);
+    if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\report.md");
+    return Promise.resolve({});
+  });
+}
+
 describe("App", () => {
   beforeEach(() => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -58,21 +141,7 @@ describe("App", () => {
       value: {},
     });
     vi.clearAllMocks();
-    invokeMock.mockImplementation((command: string) => {
-      if (command === "get_current_status" || command === "get_today_dashboard") {
-        return Promise.resolve(dashboard());
-      }
-      if (command === "get_app_preferences") {
-        return Promise.resolve(preferences);
-      }
-      if (command === "get_recent_reports") {
-        return Promise.resolve([]);
-      }
-      if (command === "get_data_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\StudyPulse");
-      if (command === "open_data_dir" || command === "clear_local_data") return Promise.resolve(undefined);
-      if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\report.md");
-      return Promise.resolve({});
-    });
+    installDefaultMocks();
   });
 
   afterEach(() => {
@@ -80,62 +149,109 @@ describe("App", () => {
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
-  it("renders idle dashboard with empty app usage and activity", async () => {
+  it("renders idle Aura companion console", async () => {
     render(<App />);
 
-    expect(await screen.findByText("StudyPulse")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Aura" })).toBeInTheDocument();
+    expect(screen.getAllByText("Aura")).toHaveLength(1);
     expect(await screen.findByText("待开始")).toBeInTheDocument();
-    expect(await screen.findByText("今日学习")).toBeInTheDocument();
-    expect(await screen.findByText("生成 AI 总结")).toBeDisabled();
-    expect(await screen.findByText("开始学习并切换几个窗口后，这里会显示应用使用时长排行。")).toBeInTheDocument();
+    expect(screen.queryByText("桌宠陪伴")).not.toBeInTheDocument();
+    expect(await screen.findByText("今日累计")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "生成 AI 总结" })).toBeDisabled();
+    expect(await screen.findByText("开始专注并切换几个窗口后，这里会显示应用使用时长排行。")).toBeInTheDocument();
+  });
+
+  it("shows settings as an inline workspace page instead of a modal layer", async () => {
+    const { container } = render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "设置" }));
+
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /常规/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Aura 桌宠/ })).toBeInTheDocument();
+    expect(container.querySelector(".dialog-backdrop")).not.toBeInTheDocument();
+  });
+
+  it("opens the pet action preview as an inline overlay from pet settings", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "get_current_status" || command === "get_today_dashboard") return Promise.resolve(dashboard());
+      if (command === "get_app_preferences") return Promise.resolve(preferences);
+      if (command === "get_recent_reports") return Promise.resolve([]);
+      if (command === "get_pet_preferences") {
+        return Promise.resolve({
+          ...petPreferences,
+          pet_enabled: true,
+          pet_name: "心华",
+          active_pet_id: "xinhua",
+          first_pet_enable_seen: true,
+        });
+      }
+      if (command === "get_pet_profiles") return Promise.resolve([xinhuaProfile]);
+      if (command === "get_pet_library_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app\\pets");
+      if (command === "get_aura_chat_history") return Promise.resolve([]);
+      if (command === "get_data_dir") return Promise.resolve("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app");
+      if (command === "get_ai_settings_masked") {
+        return Promise.resolve({
+          active_provider: "deepseek",
+          providers: [],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "设置" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Aura 桌宠/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /预览动作/ }));
+
+    expect(await screen.findByRole("dialog", { name: "桌宠动作预览" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "桌宠动作预览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /跳跃/ })).toBeInTheDocument();
+  });
+
+  it("does not show pet wake button in header when pet is disabled", async () => {
+    render(<App />);
+
+    await screen.findByText("今日累计");
+    expect(screen.queryByRole("button", { name: "桌宠" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "历史日报" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /显示桌宠/ })).not.toBeInTheDocument();
   });
 
   it("renders studying state and disables start while enabling stop", async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === "get_current_status" || command === "get_today_dashboard") {
-        return Promise.resolve(
-          dashboard({
-            session_status: "studying",
-            today_study_seconds: 125,
-            current_session_seconds: 5,
-            current_app: "Code",
-            current_window_title: "StudyPulse - main.rs",
-            keyboard_count: 8,
-            mouse_count: 3,
-            focus_score: 82,
-            app_usage: [{ app_name: "Code", exe_path: null, seconds: 125 }],
-            activity: [{ label: "10:00:05", keyboard: 8, mouse: 3 }],
-          }),
-        );
-      }
-      if (command === "get_app_preferences") return Promise.resolve(preferences);
-      if (command === "get_recent_reports") return Promise.resolve([]);
-      return Promise.resolve({});
-    });
+    installDefaultMocks(
+      dashboard({
+        session_status: "studying",
+        active_report_id: 99,
+        today_study_seconds: 125,
+        current_session_seconds: 5,
+        current_app: "Code",
+        current_window_title: "Aura - main.rs",
+        keyboard_count: 8,
+        mouse_count: 3,
+        focus_score: 82,
+        app_usage: [{ app_name: "Code", exe_path: null, seconds: 125 }],
+        activity: [{ label: "10:00:05", keyboard: 8, mouse: 3 }],
+      }),
+    );
 
     render(<App />);
 
-    expect(await screen.findByText("学习中")).toBeInTheDocument();
+    expect(await screen.findByText("专注中")).toBeInTheDocument();
     expect(await screen.findByText("11")).toBeInTheDocument();
     expect(await screen.findByText("00:05")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /开始学习/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /结束学习/ })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /开始专注/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /结束记录/ })).not.toBeDisabled();
   });
 
   it("renders ended-capable AI state when a report id exists", async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === "get_current_status" || command === "get_today_dashboard") {
-        return Promise.resolve(
-          dashboard({
-            active_report_id: 12,
-            ai_summary: "今天状态不错，继续保持。",
-          }),
-        );
-      }
-      if (command === "get_app_preferences") return Promise.resolve(preferences);
-      if (command === "get_recent_reports") return Promise.resolve([]);
-      return Promise.resolve({});
-    });
+    installDefaultMocks(
+      dashboard({
+        active_report_id: 12,
+        ai_summary: "今天状态不错，继续保持。",
+      }),
+    );
 
     render(<App />);
 
@@ -155,6 +271,8 @@ describe("App", () => {
         );
       }
       if (command === "get_app_preferences") return Promise.resolve(preferences);
+      if (command === "get_pet_preferences") return Promise.resolve(petPreferences);
+      if (command === "get_aura_chat_history") return Promise.resolve([]);
       if (command === "get_recent_reports") {
         return Promise.resolve([
           {
@@ -172,13 +290,13 @@ describe("App", () => {
         ]);
       }
       if (command === "delete_daily_report") return Promise.resolve(undefined);
-      if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\StudyPulse_Report_42.md");
+      if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\Aura_Report_42.md");
       return Promise.resolve({});
     });
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /历史日报/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /日报/ }));
     fireEvent.click(await screen.findByRole("button", { name: /删除/ }));
 
     await waitFor(() => {
@@ -191,6 +309,8 @@ describe("App", () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "get_current_status" || command === "get_today_dashboard") return Promise.resolve(dashboard());
       if (command === "get_app_preferences") return Promise.resolve(preferences);
+      if (command === "get_pet_preferences") return Promise.resolve(petPreferences);
+      if (command === "get_aura_chat_history") return Promise.resolve([]);
       if (command === "get_recent_reports") {
         return Promise.resolve([
           {
@@ -207,13 +327,13 @@ describe("App", () => {
           },
         ]);
       }
-      if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\StudyPulse_Report_42.md");
+      if (command === "export_daily_report") return Promise.resolve("C:\\Users\\tester\\Aura_Report_42.md");
       return Promise.resolve({});
     });
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /鍘嗗彶鏃ユ姤|历史日报/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /日报/ }));
     fireEvent.click(await screen.findByRole("button", { name: /导出 MD/ }));
 
     await waitFor(() => {

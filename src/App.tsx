@@ -1,8 +1,12 @@
 import {
   Activity,
+  BarChart3,
+  Bot,
   Clock3,
   Coffee,
+  Eye,
   History,
+  Home,
   MessageSquareText,
   Play,
   RefreshCw,
@@ -12,7 +16,9 @@ import {
   TimerReset,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -24,24 +30,23 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { SettingsModal } from "./components/SettingsModal";
-import { StatCard } from "./components/StatCard";
+import { HistoryDialog, PrivacyDialog } from "./components/DashboardDialogs";
+import { AuraMark, MetricTile } from "./components/DashboardUi";
+import { PetActionPreviewPanel } from "./components/PetActionPreviewWindow";
+import { SettingsPage } from "./components/SettingsModal";
 import { api, formatDuration } from "./lib/api";
+import { DEFAULT_APP_PREFERENCES, DEFAULT_PET_PREFERENCES } from "./lib/defaults";
 import type {
   AiSummaryTone,
   AppPreferences,
+  AuraChatMessage,
   ChatMessage,
   DailyReport,
   DashboardState,
   ExportFormat,
+  PetEmotion,
+  PetPreferences,
 } from "./lib/types";
-
-const defaultPreferences: AppPreferences = {
-  privacy_notice_accepted: false,
-  default_pomodoro_minutes: 25,
-  ai_summary_tone: "witty",
-  activity_capture_enabled: true,
-};
 
 const toneLabels: Record<AiSummaryTone, string> = {
   gentle: "温和鼓励",
@@ -49,6 +54,8 @@ const toneLabels: Record<AiSummaryTone, string> = {
   witty: "轻微吐槽",
   strict: "严格监督",
 };
+
+type WorkspaceTab = "overview" | "focus" | "activity" | "apps" | "review" | "aura" | "pet" | "settings";
 
 function todayLabel() {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -59,76 +66,72 @@ function todayLabel() {
 }
 
 function statusLabel(status?: string) {
-  if (status === "studying") return "学习中";
+  if (status === "studying") return "专注中";
   if (status === "ended") return "已结束";
   return "待开始";
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+function isTauriRuntime() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-  }).format(date);
-}
-
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function groupReportsByDate(reports: DailyReport[]) {
-  const groups = new Map<string, DailyReport[]>();
-  for (const report of reports) {
-    const key = formatDate(report.ended_at || report.started_at);
-    groups.set(key, [...(groups.get(key) ?? []), report]);
+async function emitPetBubble(message: string, emotion: PetEmotion = "idle") {
+  if (!message.trim()) return;
+  try {
+    await emitTo("pet", "pet-bubble", { message, emotion });
+  } catch {
+    // 桌宠窗口可能处于隐藏状态，忽略即可。
   }
-  return Array.from(groups.entries());
 }
 
-function summaryExcerpt(summary: string) {
-  const compact = summary.replace(/\s+/g, " ").trim();
-  return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
+function appCategory(appName: string) {
+  const normalized = appName.toLowerCase();
+  if (/code|cursor|idea|webstorm|pycharm|visual studio|terminal|powershell|cmd/.test(normalized)) return "work";
+  if (/chrome|edge|firefox|browser|notion|obsidian|word|excel|powerpoint|wps/.test(normalized)) return "study";
+  if (/bilibili|youtube|steam|game|netflix|spotify|music|qqmusic/.test(normalized)) return "entertainment";
+  if (/wechat|qq|telegram|discord|slack|teams/.test(normalized)) return "social";
+  return "other";
+}
+
+function isMeaningfulAppSwitch(previousApp: string, nextApp: string) {
+  const previous = appCategory(previousApp);
+  const next = appCategory(nextApp);
+  return previous !== next && next !== "other";
 }
 
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardState | null>(null);
   const [lastReport, setLastReport] = useState<DailyReport | null>(null);
   const [reports, setReports] = useState<DailyReport[]>([]);
-  const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_APP_PREFERENCES);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>("overview");
+  const [settingsTab, setSettingsTab] = useState<"general" | "pet" | "ai" | "privacy-data" | undefined>();
+  const [petPreviewOpen, setPetPreviewOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [auraInput, setAuraInput] = useState("");
+  const [auraMessages, setAuraMessages] = useState<AuraChatMessage[]>([]);
+  const [petPreferences, setPetPreferences] = useState<PetPreferences>(DEFAULT_PET_PREFERENCES);
+  const lastPetApp = useRef("");
+  const appEnteredAt = useRef(Date.now());
+  const lastNudgeAt = useRef(0);
+  const refreshing = useRef(false);
 
   const pomodoroMinutes = preferences.default_pomodoro_minutes;
 
   async function refresh() {
+    if (refreshing.current || document.visibilityState === "hidden") return;
+    refreshing.current = true;
     try {
       setDashboard(await api.getCurrentStatus());
     } catch (refreshError) {
       setError(String(refreshError));
+    } finally {
+      refreshing.current = false;
     }
   }
 
@@ -142,6 +145,14 @@ export default function App() {
     }
   }
 
+  async function loadPetPreferences() {
+    try {
+      setPetPreferences(await api.getPetPreferences());
+    } catch {
+      setPetPreferences(DEFAULT_PET_PREFERENCES);
+    }
+  }
+
   async function loadReports() {
     try {
       setReports(await api.getRecentReports(30));
@@ -150,16 +161,48 @@ export default function App() {
     }
   }
 
+  async function loadAuraMessages() {
+    try {
+      setAuraMessages(await api.getAuraChatHistory());
+    } catch {
+      setAuraMessages([]);
+    }
+  }
+
   useEffect(() => {
     refresh();
     loadPreferences();
+    loadPetPreferences();
     loadReports();
+    loadAuraMessages();
     const timer = window.setInterval(refresh, 1000);
-    return () => window.clearInterval(timer);
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refresh();
+        loadPetPreferences();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    listen<"pet" | "ai" | "privacy-data">("open-settings", (event) => {
+      setSettingsTab(event.payload);
+      setActiveWorkspaceTab("settings");
+    }).then((value) => {
+      unlisten = value;
+    });
+    return () => unlisten?.();
   }, []);
 
   const isStudying = dashboard?.session_status === "studying";
-  const reportId = lastReport?.id ?? dashboard?.active_report_id ?? null;
+  const reportId = isStudying ? null : lastReport?.id ?? dashboard?.active_report_id ?? null;
   const aiSummary = lastReport?.ai_summary ?? dashboard?.ai_summary;
   const topApps = dashboard?.app_usage.slice(0, 6) ?? [];
   const focusScore = dashboard?.focus_score ?? 0;
@@ -169,6 +212,46 @@ export default function App() {
     if (dashboard?.activity.length) return dashboard.activity;
     return [{ label: "现在", keyboard: 0, mouse: 0 }];
   }, [dashboard]);
+
+  useEffect(() => {
+    if (!dashboard || !petPreferences.pet_enabled || !petPreferences.proactive_ai_enabled) return;
+    const appName = dashboard.current_app || "Unknown";
+    const now = Date.now();
+    const cooldownMs = 30 * 60 * 1000;
+    const idleMs = petPreferences.idle_nudge_minutes * 60 * 1000;
+
+    async function sendNudge(eventType: "idle_app" | "app_switch") {
+      if (now - lastNudgeAt.current < cooldownMs) return;
+      lastNudgeAt.current = now;
+      try {
+        const nudge = await api.sendProactivePetNudge(eventType);
+        await emitPetBubble(nudge.message, nudge.emotion);
+      } catch {
+        // 主动关心失败时不影响主窗口记录和总结。
+      }
+    }
+
+    if (!lastPetApp.current) {
+      lastPetApp.current = appName;
+      appEnteredAt.current = now;
+      return;
+    }
+
+    if (lastPetApp.current !== appName) {
+      const previous = lastPetApp.current;
+      lastPetApp.current = appName;
+      appEnteredAt.current = now;
+      if (petPreferences.app_switch_nudge_enabled && isMeaningfulAppSwitch(previous, appName)) {
+        sendNudge("app_switch");
+      }
+      return;
+    }
+
+    if (now - appEnteredAt.current >= idleMs) {
+      sendNudge("idle_app");
+      appEnteredAt.current = now;
+    }
+  }, [dashboard, petPreferences]);
 
   async function runAction<T>(action: () => Promise<T>, after?: (value: T) => void) {
     setBusy(true);
@@ -201,12 +284,32 @@ export default function App() {
 
   async function generateSummary() {
     if (!reportId) {
-      setError("请先结束一次学习会话，再生成 AI 总结。");
+      setError("请先结束一次专注记录，再生成 AI 总结。");
       return;
     }
     await runAction(() => api.generateAiSummary(reportId, preferences.ai_summary_tone), (summary) => {
       setLastReport((current) => (current ? { ...current, ai_summary: summary } : current));
+      emitPetBubble(summary, "ended");
     });
+  }
+
+  async function stopSessionAndSummarize() {
+    await runAction(
+      async () => {
+        const report = await api.stopSession();
+        try {
+          const summary = await api.generateAiSummary(report.id, preferences.ai_summary_tone);
+          return { ...report, ai_summary: summary };
+        } catch (summaryError) {
+          setError(`日报已保存，但 AI 总结生成失败：${String(summaryError)}`);
+          return report;
+        }
+      },
+      (report) => {
+        setLastReport(report);
+        if (report.ai_summary) emitPetBubble(report.ai_summary, "ended");
+      },
+    );
   }
 
   async function sendChat() {
@@ -223,11 +326,37 @@ export default function App() {
     setMessages((current) => [...current, optimistic]);
     await runAction(() => api.chatWithAi(reportId, content), (reply) => {
       setMessages((current) => [...current, reply]);
+      emitPetBubble(reply.content, "happy");
+    });
+  }
+
+  async function sendAuraChat() {
+    if (!auraInput.trim()) return;
+    const content = auraInput.trim();
+    setAuraInput("");
+    const optimistic: AuraChatMessage = {
+      id: Date.now(),
+      role: "user",
+      content,
+      emotion: "idle",
+      created_at: new Date().toISOString(),
+    };
+    setAuraMessages((current) => [...current, optimistic]);
+    await runAction(() => api.chatWithAura(content), (reply) => {
+      setAuraMessages((current) => [...current, reply]);
+      emitPetBubble(reply.content, reply.emotion);
+    });
+  }
+
+  async function clearAuraChat() {
+    await runAction(api.clearAuraChatHistory, () => {
+      setAuraMessages([]);
+      emitPetBubble("聊天记录清空了，我们可以从这一刻重新开始。", "idle");
     });
   }
 
   async function deleteReport(reportIdToDelete: number) {
-    if (!window.confirm("确定删除这条日报记录吗？今日学习总时长不会被清零。")) return;
+    if (!window.confirm("确定删除这条日报记录吗？今日累计时长不会被清零。")) return;
     await runAction(() => api.deleteDailyReport(reportIdToDelete), () => {
       if (lastReport?.id === reportIdToDelete) {
         setLastReport(null);
@@ -244,20 +373,36 @@ export default function App() {
     });
   }
 
+  const latestAuraReply = [...auraMessages].reverse().find((message) => message.role === "assistant");
+  const totalActivity = (dashboard?.keyboard_count ?? 0) + (dashboard?.mouse_count ?? 0);
+  const currentApp = dashboard?.current_app || "尚未开始";
+  const currentWindowTitle = dashboard?.current_window_title || "开始后会显示当前窗口";
+  const petStatus = petPreferences.pet_enabled ? "桌宠已启用" : "桌宠未启用";
+  const pomodoroRemaining = dashboard?.pomodoro.remaining_seconds ?? pomodoroMinutes * 60;
+  const workspaceNav: Array<{ id: WorkspaceTab; label: string; icon: ReactNode }> = [
+    { id: "overview", label: "总览", icon: <Home size={18} /> },
+    { id: "focus", label: "专注计时", icon: <Clock3 size={18} /> },
+    { id: "activity", label: "实时观察", icon: <Activity size={18} /> },
+    { id: "apps", label: "应用排行", icon: <BarChart3 size={18} /> },
+    { id: "review", label: "复盘", icon: <MessageSquareText size={18} /> },
+    { id: "aura", label: "Aura 对话", icon: <MessageSquareText size={18} /> },
+    { id: "settings", label: "设置", icon: <Settings size={18} /> },
+  ];
+
   return (
-    <main className="min-h-screen bg-paper text-ink">
-      <header className="flex items-center justify-between border-b border-line bg-white/60 px-6 py-4">
+    <main className="app-shell">
+      <header className="app-header">
         <div className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-tomato text-white">
-            <StudyPulseMark />
+          <div className="brand-mark">
+            <AuraMark />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">StudyPulse</h1>
-            <p className="text-sm text-ink/60">{todayLabel()}</p>
+            <h1 className="text-xl font-semibold">Aura</h1>
+            <p className="text-sm text-ink/60">AI Desktop Companion · {todayLabel()}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink/70">
+          <span className="status-pill">
             {statusLabel(dashboard?.session_status)}
           </span>
           <button
@@ -268,230 +413,488 @@ export default function App() {
             }}
           >
             <History size={17} />
-            历史日报
+            日报
           </button>
-          <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="打开设置">
+          {petPreferences.pet_enabled ? (
+            <button className="secondary-button" onClick={() => api.showPetWindow()} title="桌宠已启用，隐藏时可点击这里唤醒">
+              <Eye size={17} />
+              显示桌宠
+            </button>
+          ) : null}
+          <button
+            className="icon-button"
+            onClick={() => {
+              setSettingsTab(undefined);
+              setActiveWorkspaceTab("settings");
+            }}
+            aria-label="打开设置"
+          >
             <Settings size={18} />
           </button>
         </div>
       </header>
 
-      <div className="grid gap-5 p-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <section className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-3">
-            <StatCard
-              label="今日学习"
-              value={formatDuration(dashboard?.today_study_seconds ?? 0)}
-              hint={isStudying ? "当前会话正在记录" : "开始后自动累计"}
-              icon={<Clock3 size={18} />}
-            />
-            <StatCard label="专注度" value={`${focusScore}`} hint={focusTone} icon={<Activity size={18} />} />
-            <StatCard
-              label="键鼠活跃"
-              value={`${(dashboard?.keyboard_count ?? 0) + (dashboard?.mouse_count ?? 0)}`}
-              hint={`键盘 ${dashboard?.keyboard_count ?? 0} / 鼠标 ${dashboard?.mouse_count ?? 0}`}
-              icon={<TimerReset size={18} />}
-            />
-          </div>
-
-          <section className="rounded-lg border border-line bg-white/80 p-5 shadow-panel">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/50">Session</p>
-                <h2 className="mt-2 text-4xl font-semibold">{formatDuration(dashboard?.current_session_seconds ?? 0)}</h2>
-                <p className="mt-2 max-w-2xl truncate text-sm text-ink/60">
-                  {dashboard?.current_app ?? "未开始"} / {dashboard?.current_window_title ?? "暂无窗口记录"}
-                </p>
-                <button
-                  className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-moss"
-                  onClick={() => setPrivacyOpen(true)}
-                >
-                  <ShieldCheck size={16} />
-                  查看隐私说明
-                </button>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="primary-button"
-                  disabled={busy || isStudying}
-                  onClick={() => runAction(api.startSession)}
-                >
-                  <Play size={17} />
-                  开始学习
-                </button>
-                <button
-                  className="danger-button"
-                  disabled={busy || !isStudying}
-                  onClick={() => runAction(api.stopSession, setLastReport)}
-                >
-                  <Square size={16} />
-                  结束学习
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="grid gap-5 lg:grid-cols-[0.75fr_1fr]">
-            <div className="rounded-lg border border-line bg-white/80 p-5 shadow-panel">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/50">Pomodoro</p>
-                  <h2 className="mt-2 text-5xl font-semibold">
-                    {formatDuration(dashboard?.pomodoro.remaining_seconds ?? pomodoroMinutes * 60)}
-                  </h2>
-                  <p className="mt-2 text-sm text-ink/60">完成 {dashboard?.pomodoro.completed_count ?? 0} 个番茄钟</p>
-                </div>
-                <Coffee className="text-tomato" size={24} />
-              </div>
-
-              <div className="mt-5 grid grid-cols-3 gap-2">
-                {[25, 40, 50].map((minutes) => (
-                  <button
-                    className={pomodoroMinutes === minutes ? "primary-button justify-center" : "secondary-button justify-center"}
-                    key={minutes}
-                    onClick={() => savePreferences({ ...preferences, default_pomodoro_minutes: minutes })}
-                  >
-                    {minutes}m
-                  </button>
-                ))}
-              </div>
-              <label className="field mt-3">
-                <span>自定义分钟数</span>
-                <input
-                  min={1}
-                  max={180}
-                  type="number"
-                  value={pomodoroMinutes}
-                  onChange={(event) =>
-                    savePreferences({
-                      ...preferences,
-                      default_pomodoro_minutes: Number(event.target.value || 25),
-                    })
-                  }
-                />
-              </label>
-              <div className="mt-4 flex gap-2">
-                <button className="secondary-button" onClick={() => runAction(() => api.startPomodoro(pomodoroMinutes))}>
-                  <Play size={16} />
-                  开始
-                </button>
-                <button className="secondary-button" onClick={() => runAction(api.pausePomodoro)}>
-                  暂停/继续
-                </button>
-                <button className="icon-button" onClick={() => runAction(api.resetPomodoro)} aria-label="重置番茄钟">
-                  <RefreshCw size={17} />
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-white/80 p-5 shadow-panel">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="font-semibold">活跃度趋势</h2>
-                <span className="text-sm text-ink/50">最近采样</span>
-              </div>
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={activityData}>
-                    <CartesianGrid stroke="#ebe5da" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="keyboard" stroke="#2f6f5e" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="mouse" stroke="#d94c3d" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </section>
-        </section>
-
-        <aside className="space-y-5">
-          <section className="rounded-lg border border-line bg-white/80 p-5 shadow-panel">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-semibold">常用软件排行</h2>
-              <span className="text-sm text-ink/50">Top {topApps.length}</span>
-            </div>
-            {topApps.length ? (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topApps} layout="vertical" margin={{ left: 12, right: 16 }}>
-                    <CartesianGrid stroke="#ebe5da" horizontal={false} />
-                    <XAxis type="number" tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`} />
-                    <YAxis dataKey="app_name" type="category" width={92} tick={{ fontSize: 12 }} />
-                    <Tooltip formatter={(value) => formatDuration(Number(value))} />
-                    <Bar dataKey="seconds" fill="#2f6f5e" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="rounded-md border border-line bg-paper p-4 text-sm text-ink/60">
-                开始学习并切换几个窗口后，这里会显示应用使用时长排行。
-              </p>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-line bg-white/80 p-5 shadow-panel">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="font-semibold">AI 总结</h2>
-                <p className="text-sm text-ink/60">结束学习后生成复盘反馈</p>
-              </div>
-              <MessageSquareText className="text-moss" size={20} />
-            </div>
-
-            <label className="field mb-3">
-              <span>总结语气</span>
-              <select
-                className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm font-normal text-ink outline-none focus:border-moss"
-                value={preferences.ai_summary_tone}
-                onChange={(event) =>
-                  savePreferences({ ...preferences, ai_summary_tone: event.target.value as AiSummaryTone })
-                }
+      <div className="console-shell">
+        <aside className="console-sidebar">
+          <nav className="console-nav" aria-label="Aura 工作台导航">
+            {workspaceNav.map((item) => (
+              <button
+                className={activeWorkspaceTab === item.id ? "console-nav-item console-nav-item-active" : "console-nav-item"}
+                key={item.id}
+                onClick={() => {
+                  if (item.id === "settings") setSettingsTab(undefined);
+                  setActiveWorkspaceTab(item.id);
+                }}
+                type="button"
               >
-                {Object.entries(toneLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
 
-            <div className="min-h-28 rounded-md border border-line bg-paper p-4 text-sm leading-6 text-ink/75">
-              {aiSummary || "还没有总结。结束一次学习会话后，可以生成本地日报和 AI 反馈。"}
-            </div>
-
-            <button className="primary-button mt-4 w-full justify-center" disabled={busy || !reportId} onClick={generateSummary}>
-              {busy ? "处理中..." : "生成 AI 总结"}
+          <div className="console-sidebar-footer">
+            <p>当前状态：{statusLabel(dashboard?.session_status)}</p>
+            <button onClick={() => setPrivacyOpen(true)} type="button">
+              <ShieldCheck size={15} />
+              隐私边界
             </button>
-
-            <div className="mt-4 space-y-3">
-              <div className="max-h-36 space-y-2 overflow-auto pr-1">
-                {messages.map((message) => (
-                  <p
-                    className={message.role === "user" ? "chat-bubble ml-auto bg-moss text-white" : "chat-bubble bg-paper text-ink"}
-                    key={message.id}
-                  >
-                    {message.content}
-                  </p>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-moss"
-                  value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
-                  placeholder="继续问问今天的状态"
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") sendChat();
-                  }}
-                />
-                <button className="secondary-button" disabled={!reportId || busy} onClick={sendChat}>
-                  发送
-                </button>
-              </div>
-            </div>
-          </section>
+          </div>
         </aside>
+
+        <section className="console-main">
+          {activeWorkspaceTab === "overview" ? (
+            <section className="console-page console-page-overview">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">Overview</p>
+                <h2>用量信息</h2>
+                <p>所有记录只保存在本机。开始专注后，Aura 会在这里汇总今天的状态、窗口和复盘入口。</p>
+              </div>
+
+              <div className="console-metrics">
+                <MetricTile
+                  label="今日累计"
+                  value={formatDuration(dashboard?.today_study_seconds ?? 0)}
+                  hint={isStudying ? "当前会话记录中" : "开始后自动累计"}
+                  icon={<Clock3 size={17} />}
+                />
+                <MetricTile label="专注度" value={`${focusScore}`} hint={focusTone} icon={<Activity size={17} />} />
+                <MetricTile
+                  label="活跃度"
+                  value={`${totalActivity}`}
+                  hint={`键盘 ${dashboard?.keyboard_count ?? 0} / 鼠标 ${dashboard?.mouse_count ?? 0}`}
+                  icon={<TimerReset size={17} />}
+                />
+              </div>
+
+              <div className="console-split">
+                <section className="console-section">
+                  <div className="console-section-head">
+                    <div>
+                      <h3>专注计时</h3>
+                      <p>{isStudying ? "Aura 正在记录这段专注。" : "准备好时，开启一段新的节奏。"}</p>
+                    </div>
+                    <span className={isStudying ? "state-chip state-chip-live" : "state-chip"}>
+                      {isStudying ? "会话记录中" : "会话待命"}
+                    </span>
+                  </div>
+                  <div className="console-focus-time">{formatDuration(dashboard?.current_session_seconds ?? 0)}</div>
+                  <div className="console-current-app">
+                    <Clock3 size={18} />
+                    <div className="min-w-0">
+                      <p>{currentApp}</p>
+                      <span>{currentWindowTitle}</span>
+                    </div>
+                  </div>
+                  <div className="console-actions">
+                    <button className="primary-button" disabled={busy || isStudying} onClick={() => runAction(api.startSession)}>
+                      <Play size={17} />
+                      开始专注
+                    </button>
+                    <button className="danger-button" disabled={busy || !isStudying} onClick={stopSessionAndSummarize}>
+                      <Square size={16} />
+                      结束记录
+                    </button>
+                  </div>
+                </section>
+
+                <section className="console-section">
+                  <div className="console-section-head">
+                    <div>
+                      <h3>番茄钟</h3>
+                      <p>已完成 {dashboard?.pomodoro.completed_count ?? 0} 个番茄钟</p>
+                    </div>
+                    <Coffee className="text-tomato" size={22} />
+                  </div>
+                  <div className="pomodoro-readout">
+                    <strong>{formatDuration(pomodoroRemaining)}</strong>
+                    <span>{pomodoroMinutes} 分钟节奏</span>
+                  </div>
+                  <div className="pomodoro-actions">
+                    <button className="secondary-button" onClick={() => runAction(() => api.startPomodoro(pomodoroMinutes))}>
+                      <Play size={16} />
+                      开始
+                    </button>
+                    <button className="secondary-button" onClick={() => runAction(api.pausePomodoro)}>
+                      暂停/继续
+                    </button>
+                    <button className="icon-button" onClick={() => runAction(api.resetPomodoro)} aria-label="重置番茄钟">
+                      <RefreshCw size={17} />
+                    </button>
+                  </div>
+                </section>
+              </div>
+
+              <div className="console-split">
+                <section className="console-section">
+                  <div className="console-section-head">
+                    <div>
+                      <h3>应用排行</h3>
+                      <p>这段时间主要停留在哪里</p>
+                    </div>
+                    <span className="state-chip">Top {topApps.length}</span>
+                  </div>
+                  {topApps.length ? (
+                    <div className="chart-frame console-chart-sm">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={210}>
+                        <BarChart data={topApps} layout="vertical" margin={{ left: 12, right: 16 }}>
+                          <CartesianGrid stroke="#ebe5da" horizontal={false} />
+                          <XAxis type="number" tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`} />
+                          <YAxis dataKey="app_name" type="category" width={92} tick={{ fontSize: 12 }} />
+                          <Tooltip formatter={(value) => formatDuration(Number(value))} />
+                          <Bar dataKey="seconds" fill="#2f6f5e" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <p className="empty-panel">开始专注并切换几个窗口后，这里会显示应用使用时长排行。</p>
+                  )}
+                </section>
+
+                <section className="console-section">
+                  <div className="console-section-head">
+                    <div>
+                      <h3>复盘</h3>
+                      <p>结束一次记录后生成总结</p>
+                    </div>
+                    <MessageSquareText className="text-moss" size={20} />
+                  </div>
+                  <div className="review-summary">{aiSummary || "还没有总结。结束一次专注记录后，可以生成本地日报和 AI 反馈。"}</div>
+                  <button className="primary-button mt-3" disabled={busy || !reportId} onClick={generateSummary}>
+                    {busy ? "处理中..." : "生成 AI 总结"}
+                  </button>
+                </section>
+              </div>
+
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "focus" ? (
+            <section className="console-page">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">Focus</p>
+                <h2>专注计时</h2>
+                <p>专注计时、当前窗口和番茄节奏集中在这一页。</p>
+              </div>
+              <div className="console-focus-layout">
+                <section className="console-section">
+                  <div className="console-focus-time console-focus-time-lg">{formatDuration(dashboard?.current_session_seconds ?? 0)}</div>
+                  <p className="focus-note">{isStudying ? "Aura 正在记录这段专注，保持当前节奏。" : "准备好时，直接开始一段新的专注记录。"}</p>
+                  <div className="console-current-app">
+                    <Clock3 size={18} />
+                    <div className="min-w-0">
+                      <p>{currentApp}</p>
+                      <span>{currentWindowTitle}</span>
+                    </div>
+                  </div>
+                  <div className="console-actions">
+                    <button className="primary-button" disabled={busy || isStudying} onClick={() => runAction(api.startSession)}>
+                      <Play size={17} />
+                      开始专注
+                    </button>
+                    <button className="danger-button" disabled={busy || !isStudying} onClick={stopSessionAndSummarize}>
+                      <Square size={16} />
+                      结束记录
+                    </button>
+                    <button className="secondary-button" onClick={() => setPrivacyOpen(true)}>
+                      <ShieldCheck size={16} />
+                      查看隐私边界
+                    </button>
+                  </div>
+                </section>
+                <section className="console-section">
+                  <div className="console-section-head">
+                    <div>
+                      <h3>番茄钟</h3>
+                      <p>预设分钟、自定义和开始/暂停控制。</p>
+                    </div>
+                    <Coffee className="text-tomato" size={22} />
+                  </div>
+                  <div className="pomodoro-readout">
+                    <strong>{formatDuration(pomodoroRemaining)}</strong>
+                    <span>已完成 {dashboard?.pomodoro.completed_count ?? 0} 个番茄钟</span>
+                  </div>
+                  <div className="pomodoro-presets">
+                    {[25, 40, 50].map((minutes) => (
+                      <button
+                        className={pomodoroMinutes === minutes ? "primary-button compact-button justify-center" : "secondary-button compact-button justify-center"}
+                        key={minutes}
+                        onClick={() => savePreferences({ ...preferences, default_pomodoro_minutes: minutes })}
+                      >
+                        {minutes}m
+                      </button>
+                    ))}
+                    <label className="pomodoro-custom">
+                      <span>自定义</span>
+                      <input
+                        min={1}
+                        max={180}
+                        type="number"
+                        value={pomodoroMinutes}
+                        onChange={(event) =>
+                          savePreferences({
+                            ...preferences,
+                            default_pomodoro_minutes: Number(event.target.value || 25),
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="pomodoro-actions">
+                    <button className="secondary-button" onClick={() => runAction(() => api.startPomodoro(pomodoroMinutes))}>
+                      <Play size={16} />
+                      开始
+                    </button>
+                    <button className="secondary-button" onClick={() => runAction(api.pausePomodoro)}>
+                      暂停/继续
+                    </button>
+                    <button className="icon-button" onClick={() => runAction(api.resetPomodoro)} aria-label="重置番茄钟">
+                      <RefreshCw size={17} />
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "activity" ? (
+            <section className="console-page">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">Live signal</p>
+                <h2>实时观察</h2>
+                <p>键盘和鼠标活跃趋势会在这里更新；不记录具体输入内容。</p>
+              </div>
+              <section className="console-section">
+                <div className="console-section-head">
+                  <div>
+                    <h3>键鼠活跃趋势</h3>
+                    <p>{currentApp} · {currentWindowTitle}</p>
+                  </div>
+                  <span className="state-chip">最近采样</span>
+                </div>
+                <div className="chart-frame console-chart-lg">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={240} minHeight={360}>
+                    <LineChart data={activityData}>
+                      <CartesianGrid stroke="#ebe5da" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="keyboard" stroke="#2f6f5e" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="mouse" stroke="#d94c3d" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "apps" ? (
+            <section className="console-page">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">App distribution</p>
+                <h2>应用排行</h2>
+                <p>查看这段时间主要停留在哪些应用里。</p>
+              </div>
+              <section className="console-section">
+                {topApps.length ? (
+                  <div className="chart-frame console-chart-lg">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={360}>
+                      <BarChart data={topApps} layout="vertical" margin={{ left: 12, right: 16 }}>
+                        <CartesianGrid stroke="#ebe5da" horizontal={false} />
+                        <XAxis type="number" tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`} />
+                        <YAxis dataKey="app_name" type="category" width={112} tick={{ fontSize: 12 }} />
+                        <Tooltip formatter={(value) => formatDuration(Number(value))} />
+                        <Bar dataKey="seconds" fill="#2f6f5e" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="empty-panel">开始专注并切换几个窗口后，这里会显示应用使用时长排行。</p>
+                )}
+              </section>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "review" ? (
+            <section className="console-page">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">Review</p>
+                <h2>复盘</h2>
+                <p>选择总结语气，生成 AI 总结，并继续追问这次记录。</p>
+              </div>
+              <section className="console-section console-readable">
+                <div className="review-toolbar">
+                  <label className="field">
+                    <span>总结语气</span>
+                    <select
+                      value={preferences.ai_summary_tone}
+                      onChange={(event) => savePreferences({ ...preferences, ai_summary_tone: event.target.value as AiSummaryTone })}
+                    >
+                      {Object.entries(toneLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="primary-button justify-center" disabled={busy || !reportId} onClick={generateSummary}>
+                    {busy ? "处理中..." : "生成 AI 总结"}
+                  </button>
+                </div>
+                <div className="review-summary">{aiSummary || "还没有总结。结束一次专注记录后，可以生成本地日报和 AI 反馈。"}</div>
+                <div className="review-thread">
+                  {messages.length ? (
+                    messages.map((message) => (
+                      <p
+                        className={message.role === "user" ? "chat-bubble ml-auto bg-moss text-white" : "chat-bubble bg-paper text-ink"}
+                        key={message.id}
+                      >
+                        {message.content}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-sm text-ink/50">生成总结后，可以继续追问这次复盘。</p>
+                  )}
+                </div>
+                <div className="input-row">
+                  <input
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    placeholder="继续追问这次复盘"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") sendChat();
+                    }}
+                  />
+                  <button className="secondary-button" disabled={!reportId || busy} onClick={sendChat}>
+                    发送
+                  </button>
+                </div>
+              </section>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "aura" ? (
+            <section className="console-page">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">Aura chat</p>
+                <h2>和 Aura 对话</h2>
+                <p>独立于日报的陪伴聊天，会同步桌宠表情。</p>
+              </div>
+              <section className="console-section console-readable">
+                <div className="console-chat-log">
+                  {auraMessages.length ? (
+                    auraMessages.map((message) => (
+                      <p
+                        className={message.role === "user" ? "chat-bubble ml-auto bg-moss text-white" : "chat-bubble bg-paper text-ink"}
+                        key={message.id}
+                      >
+                        {message.content}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="empty-panel">可以直接和 Aura 说一句，她会结合当前状态回应，并同步桌宠表情。</p>
+                  )}
+                </div>
+                <div className="input-row">
+                  <input
+                    value={auraInput}
+                    onChange={(event) => setAuraInput(event.target.value)}
+                    placeholder="和 Aura 说点什么"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") sendAuraChat();
+                    }}
+                  />
+                  <button className="secondary-button" disabled={busy || !auraInput.trim()} onClick={sendAuraChat}>
+                    发送
+                  </button>
+                  <button className="icon-button" onClick={clearAuraChat} aria-label="清空 Aura 对话">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </section>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "pet" ? (
+            <section className="console-page console-page-pet">
+              <div className="console-page-head">
+                <p className="panel-eyebrow">Aura dock</p>
+                <h2>桌宠陪伴</h2>
+                <p>{petStatus} · {petPreferences.pet_name || "未选择宠物"}</p>
+              </div>
+              <section className="console-section console-section-soft">
+                <div className="console-section-head">
+                  <div>
+                    <h3>桌宠状态</h3>
+                    <p>
+                      {latestAuraReply?.content ||
+                        (petPreferences.pet_enabled
+                          ? "我在旁边。你开始专注后，我会把状态和回复同步到桌宠气泡里。"
+                          : "桌宠是可选的。开启后，Aura 会显示悬浮宠物和状态气泡。")}
+                    </p>
+                  </div>
+                  <Bot className="text-moss" size={24} />
+                </div>
+                <div className="console-actions">
+                  <button className="secondary-button" disabled={!petPreferences.pet_enabled} onClick={() => api.showPetWindow()}>
+                    <Eye size={16} />
+                    显示桌宠
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setSettingsTab("pet");
+                      setActiveWorkspaceTab("settings");
+                    }}
+                  >
+                    <Settings size={16} />
+                    桌宠设置
+                  </button>
+                </div>
+              </section>
+            </section>
+          ) : null}
+
+          {activeWorkspaceTab === "settings" ? (
+            <section className="console-page console-page-settings">
+              <SettingsPage
+                active={activeWorkspaceTab === "settings"}
+                onShowPrivacy={() => setPrivacyOpen(true)}
+                initialTab={settingsTab}
+                preferences={preferences}
+                onSavePreferences={savePreferences}
+                onPreviewPetActions={() => setPetPreviewOpen(true)}
+                onPetPreferencesSaved={setPetPreferences}
+                onDataCleared={() => {
+                  setLastReport(null);
+                  setMessages([]);
+                  loadReports();
+                  refresh();
+                }}
+              />
+            </section>
+          ) : null}
+        </section>
       </div>
 
       {historyOpen ? (
@@ -511,191 +914,11 @@ export default function App() {
         />
       ) : null}
       {error ? <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-ink px-4 py-3 text-sm text-white">{error}</div> : null}
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onShowPrivacy={() => setPrivacyOpen(true)}
-        preferences={preferences}
-        onSavePreferences={savePreferences}
-        onDataCleared={() => {
-          setLastReport(null);
-          setMessages([]);
-          loadReports();
-          refresh();
-        }}
-      />
+      {petPreviewOpen ? (
+        <div className="pet-preview-overlay" role="dialog" aria-modal="true" aria-label="桌宠动作预览">
+          <PetActionPreviewPanel onClose={() => setPetPreviewOpen(false)} />
+        </div>
+      ) : null}
     </main>
-  );
-}
-
-function HistoryDialog({
-  reports,
-  onClose,
-  onRefresh,
-  onDelete,
-  onExport,
-}: {
-  reports: DailyReport[];
-  onClose: () => void;
-  onRefresh: () => void;
-  onDelete: (reportId: number) => void;
-  onExport: (reportId: number, format: ExportFormat) => void;
-}) {
-  const grouped = groupReportsByDate(reports);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
-      <section className="max-h-[82vh] w-full max-w-3xl overflow-hidden rounded-lg border border-line bg-paper shadow-panel">
-        <header className="flex items-center justify-between border-b border-line px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold">历史日报</h2>
-            <p className="text-sm text-ink/60">按日期归档最近 30 条本地学习记录</p>
-          </div>
-          <div className="flex gap-2">
-            <button className="secondary-button" onClick={onRefresh}>
-              刷新
-            </button>
-            <button className="secondary-button" onClick={onClose}>
-              关闭
-            </button>
-          </div>
-        </header>
-        <div className="max-h-[64vh] space-y-3 overflow-auto p-5">
-          {grouped.length ? (
-            grouped.map(([dateLabel, items]) => (
-              <section className="space-y-3" key={dateLabel}>
-                <h3 className="text-sm font-semibold text-ink/70">{dateLabel}</h3>
-                {items.map((report) => (
-                  <article className="rounded-lg border border-line bg-white p-4" key={report.id}>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h4 className="font-semibold">日报 #{report.id}</h4>
-                        <p className="text-sm text-ink/60">
-                          {formatTime(report.started_at)} - {formatTime(report.ended_at)}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="rounded-md bg-paper px-2 py-1">学习 {formatDuration(report.total_seconds)}</span>
-                        <span className="rounded-md bg-paper px-2 py-1">专注 {report.focus_score}</span>
-                        <span className="rounded-md bg-paper px-2 py-1">番茄 {report.pomodoro_completed}</span>
-                        <button
-                          className="secondary-button px-2 py-1 text-xs"
-                          onClick={() => onExport(report.id, "markdown")}
-                          type="button"
-                        >
-                          导出 MD
-                        </button>
-                        <button
-                          className="secondary-button px-2 py-1 text-xs"
-                          onClick={() => onExport(report.id, "txt")}
-                          type="button"
-                        >
-                          导出 TXT
-                        </button>
-                        <button
-                          className="danger-button px-2 py-1 text-xs"
-                          onClick={() => onDelete(report.id)}
-                          type="button"
-                        >
-                          <Trash2 size={14} />
-                          删除
-                        </button>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-sm text-ink/70">
-                      Top 应用：
-                      {report.app_usage.length
-                        ? report.app_usage
-                            .slice(0, 3)
-                            .map((item) => `${item.app_name} ${formatDuration(item.seconds)}`)
-                            .join("、")
-                        : "暂无采样数据"}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-ink/75">
-                      {report.ai_summary ? summaryExcerpt(report.ai_summary) : "尚未生成 AI 总结。"}
-                    </p>
-                  </article>
-                ))}
-              </section>
-            ))
-          ) : (
-            <p className="rounded-md border border-line bg-white p-4 text-sm text-ink/60">
-              还没有历史日报。结束一次学习会话后，这里会自动出现记录。
-            </p>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function StudyPulseMark() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true" className="h-6 w-6">
-      <circle cx="16" cy="17" r="11" fill="currentColor" opacity="0.96" />
-      <path d="M12 7.5c1.2-2 3.1-2.8 5.2-2.2" fill="none" stroke="#2f6f5e" strokeWidth="3" strokeLinecap="round" />
-      <path
-        d="M7.5 17.5h5l2.1-4.2 3.3 8.1 2.5-5.2h4.1"
-        fill="none"
-        stroke="#f6f1e9"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M16 11.2v5.5l3.5 2.3" fill="none" stroke="#20302b" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PrivacyDialog({
-  accepted,
-  onAccept,
-  onClose,
-}: {
-  accepted: boolean;
-  onAccept: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
-      <section className="w-full max-w-2xl rounded-lg border border-line bg-paper shadow-panel">
-        <header className="border-b border-line px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-moss text-white">
-              <ShieldCheck size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">隐私说明</h2>
-              <p className="text-sm text-ink/60">第一次使用前建议先看完这段说明</p>
-            </div>
-          </div>
-        </header>
-        <div className="space-y-3 p-5 text-sm leading-6 text-ink/75">
-          <p>StudyPulse 会在学习会话中记录当前前台应用、窗口标题、应用使用时长和键鼠活跃数量。</p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>不记录具体按键，也不记录输入内容。</li>
-            <li>不记录鼠标坐标，不截图，不录屏。</li>
-            <li>数据默认保存在本机 SQLite 数据库。</li>
-            <li>只有主动生成 AI 总结或继续聊天时，日报摘要才会发送到你配置的 API。</li>
-          </ul>
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-5 py-4">
-          {accepted ? (
-            <button className="secondary-button" onClick={onClose}>
-              关闭
-            </button>
-          ) : (
-            <>
-              <button className="secondary-button" onClick={onClose}>
-                稍后再看
-              </button>
-              <button className="primary-button" onClick={onAccept}>
-                我知道了
-              </button>
-            </>
-          )}
-        </footer>
-      </section>
-    </div>
   );
 }

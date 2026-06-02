@@ -80,7 +80,7 @@ fn sample_platform_foreground_window() -> Result<WindowSample, String> {
                     }
                 }
                 Err(error) => {
-                    eprintln!("[StudyPulse collector] OpenProcess failed: {error}");
+                    eprintln!("[Aura collector] OpenProcess failed: {error}");
                     None
                 }
             }

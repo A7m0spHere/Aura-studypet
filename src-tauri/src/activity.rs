@@ -54,15 +54,16 @@ impl ActivityHandle {
         self.counters.pending_counts()
     }
 
-    pub fn stop(self) {
+    pub fn stop(self, session_id: i64, db: &Arc<Mutex<Database>>) {
         self.stop.store(true, Ordering::SeqCst);
         #[cfg(windows)]
         wake_hook_thread();
         for handle in self.handles {
             if handle.join().is_err() {
-                eprintln!("[StudyPulse activity] activity thread panicked while stopping");
+                eprintln!("[Aura activity] activity thread panicked while stopping");
             }
         }
+        flush_pending_counts(session_id, db, &self.counters);
     }
 }
 
@@ -83,16 +84,16 @@ fn flush_pending_counts(session_id: i64, db: &Arc<Mutex<Database>>, counters: &A
         Ok(database) => {
             if keyboard > 0 {
                 if let Err(error) = database.add_activity_event(session_id, "keyboard", keyboard) {
-                    eprintln!("[StudyPulse activity] failed to save keyboard events: {error}");
+                    eprintln!("[Aura activity] failed to save keyboard events: {error}");
                 }
             }
             if mouse > 0 {
                 if let Err(error) = database.add_activity_event(session_id, "mouse", mouse) {
-                    eprintln!("[StudyPulse activity] failed to save mouse events: {error}");
+                    eprintln!("[Aura activity] failed to save mouse events: {error}");
                 }
             }
         }
-        Err(_) => eprintln!("[StudyPulse activity] database lock failed"),
+        Err(_) => eprintln!("[Aura activity] database lock failed"),
     }
 }
 
@@ -125,7 +126,7 @@ fn start_platform_activity_capture(
         set_active_counters(Some(&keyboard_counters));
 
         if let Err(error) = run_keyboard_hook_loop(session_id, Arc::clone(&keyboard_stop)) {
-            eprintln!("[StudyPulse activity] hook loop failed: {error}");
+            eprintln!("[Aura activity] hook loop failed: {error}");
         }
 
         set_active_counters(None);
@@ -166,7 +167,7 @@ fn run_keyboard_hook_loop(session_id: i64, stop: Arc<AtomicBool>) -> Result<(), 
         keyboard: keyboard_hook,
     };
 
-    println!("[StudyPulse activity] keyboard hook started for session {session_id}");
+    println!("[Aura activity] keyboard hook started for session {session_id}");
     while !stop.load(Ordering::SeqCst) {
         let mut message = MSG::default();
         let result = unsafe { GetMessageW(&mut message, None, 0, 0) };
@@ -180,7 +181,7 @@ fn run_keyboard_hook_loop(session_id: i64, stop: Arc<AtomicBool>) -> Result<(), 
     }
 
     drop(hooks);
-    println!("[StudyPulse activity] keyboard hook stopped for session {session_id}");
+    println!("[Aura activity] keyboard hook stopped for session {session_id}");
     Ok(())
 }
 
@@ -191,7 +192,7 @@ fn run_mouse_polling_loop(
     counters: Arc<ActivityCounters>,
     stop: Arc<AtomicBool>,
 ) {
-    println!("[StudyPulse activity] mouse polling started for session {session_id}");
+    println!("[Aura activity] mouse polling started for session {session_id}");
     let mut last_flush = Instant::now();
     let mut last_mouse_position = current_mouse_position();
 
@@ -213,7 +214,7 @@ fn run_mouse_polling_loop(
     }
 
     flush_pending_counts(session_id, &db, &counters);
-    println!("[StudyPulse activity] mouse polling stopped for session {session_id}");
+    println!("[Aura activity] mouse polling stopped for session {session_id}");
 }
 
 #[cfg(windows)]

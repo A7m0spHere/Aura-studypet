@@ -1,10 +1,11 @@
 {
-  "name": "studypulse",
+  "name": "aura",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "dev:app": "powershell -ExecutionPolicy Bypass -File scripts/dev_app.ps1",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -42,7 +43,7 @@
     "vite": "^6.0.3",
     "vitest": "^2.1.8"
   },
-  "description": "A lightweight Windows study dashboard with Pomodoro, local activity tracking, daily reports, and AI summaries.",
+  "description": "Aura, formerly StudyPulse: an AI desktop companion with Pomodoro, local activity tracking, daily reports, and AI summaries.",
   "keywords": [
     "tauri",
     "react",

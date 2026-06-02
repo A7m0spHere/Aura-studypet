@@ -1,4 +1,17 @@
-import { CheckCircle2, FolderOpen, Loader2, Search, Trash2, X, XCircle } from "lucide-react";
+import {
+  Bot,
+  CheckCircle2,
+  Database,
+  FolderOpen,
+  KeyRound,
+  Loader2,
+  MousePointer2,
+  Search,
+  Shield,
+  Trash2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type {
@@ -6,19 +19,29 @@ import type {
   AiSettingsInput,
   AiSettingsMasked,
   AppPreferences,
+  PetPreferences,
 } from "../lib/types";
+import { PetSettingsPanel } from "./PetSettingsPanel";
 
-interface SettingsModalProps {
-  open: boolean;
-  onClose: () => void;
+interface SettingsPageProps {
+  active?: boolean;
   onShowPrivacy: () => void;
+  initialTab?: SettingsTab;
   preferences: AppPreferences;
   onSavePreferences: (preferences: AppPreferences) => Promise<void>;
   onDataCleared?: () => void;
+  onPreviewPetActions?: () => void;
+  onPetPreferencesSaved?: (preferences: PetPreferences) => void;
 }
 
-type AiProvider = AiSettingsInput["provider"];
+interface SettingsModalProps extends SettingsPageProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+type AiProvider = string;
 type AiForms = Record<AiProvider, AiSettingsInput>;
+type SettingsTab = "general" | "pet" | "ai" | "privacy-data";
 
 const DEEPSEEK_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"];
 
@@ -37,14 +60,29 @@ const DEFAULT_FORMS: AiForms = {
   },
 };
 
-export function SettingsModal({
-  open,
-  onClose,
+const SETTINGS_TABS: Array<{
+  id: SettingsTab;
+  label: string;
+  description: string;
+  icon: typeof MousePointer2;
+}> = [
+  { id: "general", label: "常规", description: "采集与基础开关", icon: MousePointer2 },
+  { id: "pet", label: "Aura 桌宠", description: "宠物、人格与提醒", icon: Bot },
+  { id: "ai", label: "AI 配置", description: "模型与 API Key", icon: KeyRound },
+  { id: "privacy-data", label: "隐私与数据", description: "边界说明与本地数据", icon: Shield },
+];
+
+export function SettingsPage({
+  active = true,
   onShowPrivacy,
+  initialTab,
   preferences,
   onSavePreferences,
   onDataCleared,
-}: SettingsModalProps) {
+  onPreviewPetActions,
+  onPetPreferencesSaved,
+}: SettingsPageProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [activeProvider, setActiveProvider] = useState<AiProvider>("deepseek");
   const [forms, setForms] = useState<AiForms>(cloneDefaultForms());
   const [masked, setMasked] = useState<AiSettingsMasked | null>(null);
@@ -57,10 +95,11 @@ export function SettingsModal({
   const [clearingData, setClearingData] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     setMessage("");
     setTestMessage("");
     setCustomModels([]);
+    setActiveTab(initialTab ?? "general");
     api.getDataDir().then(setDataDir).catch(() => setDataDir(""));
     api
       .getAiSettingsMasked()
@@ -68,25 +107,33 @@ export function SettingsModal({
         setMasked(value);
         setActiveProvider(value.active_provider);
         setForms(formsFromMasked(value));
-        const custom = value.providers.find((item) => item.provider === "custom");
-        setCustomModels(custom?.available_models ?? []);
+        const active = value.providers.find((item) => item.provider === value.active_provider);
+        setCustomModels(active?.available_models ?? []);
       })
       .catch((error) => setMessage(String(error)));
-  }, [open]);
+  }, [active, initialTab]);
 
-  const activeSettings = forms[activeProvider];
+  useEffect(() => {
+    if (!message && !testMessage) return;
+    const timer = window.setTimeout(() => {
+      setMessage("");
+      setTestMessage("");
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [message, testMessage]);
+
+  const activeSettings = forms[activeProvider] ?? DEFAULT_FORMS.deepseek;
   const activeMasked = useMemo(
     () => masked?.providers.find((item) => item.provider === activeProvider),
     [activeProvider, masked],
   );
-
-  if (!open) return null;
+  const activeTabMeta = SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0];
 
   function updateActiveForm(patch: Partial<AiSettingsInput>) {
     setForms((current) => ({
       ...current,
       [activeProvider]: {
-        ...current[activeProvider],
+        ...(current[activeProvider] ?? { ...DEFAULT_FORMS.custom, provider: activeProvider }),
         ...patch,
       },
     }));
@@ -101,7 +148,7 @@ export function SettingsModal({
       setForms((current) => ({
         ...current,
         [activeProvider]: {
-          ...current[activeProvider],
+          ...(current[activeProvider] ?? activeSettings),
           api_key: "",
         },
       }));
@@ -131,14 +178,14 @@ export function SettingsModal({
     setDetectingModels(true);
     setTestMessage("");
     try {
-      const result = await api.listAiModels(forms.custom);
+      const result = await api.listAiModels(activeSettings);
       setTestMessage(result.message);
       if (result.ok) {
         setCustomModels(result.models);
-        if (!forms.custom.model.trim() && result.models.length > 0) {
+        if (!activeSettings.model.trim() && result.models.length > 0) {
           setForms((current) => ({
             ...current,
-            custom: { ...current.custom, model: result.models[0] },
+            [activeProvider]: { ...(current[activeProvider] ?? activeSettings), model: result.models[0] },
           }));
         }
       }
@@ -172,7 +219,7 @@ export function SettingsModal({
 
   async function clearLocalData() {
     if (!window.confirm("确定清空本地学习数据吗？AI 设置和隐私确认状态会保留。")) return;
-    if (!window.confirm("再次确认：该操作会删除学习会话、窗口采样、应用排行、活跃度、番茄钟事件、日报和聊天记录。")) return;
+    if (!window.confirm("再次确认：这会删除会话、窗口采样、应用排行、活跃度、番茄钟事件、日报和聊天记录。")) return;
     setClearingData(true);
     setMessage("");
     try {
@@ -186,195 +233,345 @@ export function SettingsModal({
     }
   }
 
+  function addCustomProfile() {
+    const provider = `custom:${Date.now()}`;
+    setActiveProvider(provider);
+    setCustomModels([]);
+    setForms((current) => ({
+      ...current,
+      [provider]: {
+        ...DEFAULT_FORMS.custom,
+        provider,
+      },
+    }));
+  }
+
+  async function deleteCustomProfile() {
+    if (activeProvider === "deepseek" || activeProvider === "custom") return;
+    setMessage("");
+    try {
+      await api.deleteAiSettingsProvider(activeProvider);
+      const nextMasked = await api.getAiSettingsMasked();
+      setMasked(nextMasked);
+      setActiveProvider(nextMasked.active_provider);
+      setForms(formsFromMasked(nextMasked));
+      setCustomModels([]);
+      setMessage("已删除该自定义 API 配置。");
+    } catch (error) {
+      setMessage(String(error));
+    }
+  }
+
   const deepseek = activeProvider === "deepseek";
-  const custom = activeProvider === "custom";
+  const custom = activeProvider !== "deepseek";
+  const customProfiles = masked?.providers.filter((item) => item.provider !== "deepseek") ?? [];
   const apiKeyPlaceholder = apiKeyPlaceholderFor(activeMasked);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-6">
-      <section className="w-full max-w-xl rounded-lg border border-line bg-paper shadow-panel">
-        <header className="flex items-center justify-between border-b border-line px-5 py-4">
+      <section className="settings-shell settings-shell-page">
+        <header className="settings-header settings-page-header">
           <div>
             <h2 className="text-lg font-semibold text-ink">设置</h2>
-            <p className="text-sm text-ink/60">AI 配置、采集开关和隐私边界</p>
+            <p className="text-sm text-ink/60">管理桌宠、AI、采集开关和本地数据。</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭设置">
-            <X size={18} />
-          </button>
         </header>
 
-        <div className="max-h-[78vh] space-y-4 overflow-y-auto p-5">
-          <div className="rounded-md border border-line bg-white/70 p-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold text-ink">键鼠活跃度统计</p>
-                <p className="mt-1 text-sm leading-6 text-ink/60">
-                  关闭后不启动键盘 hook 和鼠标轮询，可用于排查鼠标卡顿；学习会话、窗口采集和日报仍可使用。
-                </p>
-              </div>
-              <button
-                className={preferences.activity_capture_enabled ? "primary-button" : "secondary-button"}
-                onClick={toggleActivityCapture}
-              >
-                {preferences.activity_capture_enabled ? "已开启" : "已关闭"}
-              </button>
+        <div className="settings-body settings-body-page">
+          <nav className="settings-tabs" aria-label="设置分类">
+            {SETTINGS_TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={activeTab === tab.id ? "settings-tab settings-tab-active" : "settings-tab"}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <Icon size={17} />
+                  <span className="min-w-0">
+                    <span className="block truncate">{tab.label}</span>
+                    <span className="block truncate text-xs font-normal opacity-65">{tab.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <main className="settings-content">
+            <div className="settings-content-head">
+              <h3 className="text-base font-semibold text-ink">{activeTabMeta.label}</h3>
+              <p className="text-sm text-ink/60">{activeTabMeta.description}</p>
             </div>
-          </div>
 
-          <div className="rounded-md border border-line bg-white/70 p-3">
-            <p className="mb-2 text-sm font-semibold text-ink">AI 供应商</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button
-                className={deepseek ? "primary-button" : "secondary-button"}
-                onClick={() => setActiveProvider("deepseek")}
-              >
-                DeepSeek
-              </button>
-              <button
-                className={custom ? "primary-button" : "secondary-button"}
-                onClick={() => setActiveProvider("custom")}
-              >
-                自定义 OpenAI 兼容 API
-              </button>
-            </div>
-            <p className="mt-2 text-xs leading-5 text-ink/55">
-              DeepSeek 固定 Base URL，模型从预设中选择，Key 由用户填写。自定义模式不预设任何地址或模型，可检测 /models 后再选择。
-            </p>
-          </div>
+            <div className="settings-content-scroll">
+              {activeTab === "general" ? (
+                <SettingsSection title="采集开关" description="控制键盘与鼠标活跃度统计，不记录具体按键、输入文本或鼠标坐标。">
+                  <div className="settings-row">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">键鼠活跃度统计</p>
+                      <p className="mt-1 text-sm leading-6 text-ink/60">
+                        关闭后不会启动键盘 hook 和鼠标轮询；学习会话、窗口采样和日报仍可使用。
+                      </p>
+                    </div>
+                    <button
+                      className={preferences.activity_capture_enabled ? "primary-button" : "secondary-button"}
+                      onClick={toggleActivityCapture}
+                    >
+                      {preferences.activity_capture_enabled ? "已开启" : "已关闭"}
+                    </button>
+                  </div>
+                </SettingsSection>
+              ) : null}
 
-          <label className="field">
-            <span>API URL (Base URL)</span>
-            <input
-              value={activeSettings.base_url}
-              disabled={!custom}
-              onChange={(event) => updateActiveForm({ base_url: event.target.value })}
-              placeholder={custom ? "例如 https://api.example.com/v1" : activeSettings.base_url}
-            />
-          </label>
-
-          <label className="field">
-            <span>模型名称</span>
-            {deepseek ? (
-              <select
-                value={activeSettings.model}
-                onChange={(event) => updateActiveForm({ model: event.target.value })}
-              >
-                {DEEPSEEK_MODELS.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="space-y-2">
-                {customModels.length > 0 ? (
-                  <select
-                    value={customModels.includes(activeSettings.model) ? activeSettings.model : ""}
-                    onChange={(event) => updateActiveForm({ model: event.target.value })}
-                  >
-                    <option value="">手动输入模型名</option>
-                    {customModels.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <input
-                  value={activeSettings.model}
-                  onChange={(event) => updateActiveForm({ model: event.target.value })}
-                  placeholder="可先检测模型，也可以手动输入"
+              {activeTab === "pet" ? (
+                <PetSettingsPanel
+                  onPreviewActions={onPreviewPetActions}
+                  onPreferencesSaved={onPetPreferencesSaved}
                 />
-              </div>
-            )}
-          </label>
+              ) : null}
 
-          <label className="field">
-            <span>API Key</span>
-            <input
-              value={activeSettings.api_key}
-              onChange={(event) => updateActiveForm({ api_key: event.target.value })}
-              type="password"
-              placeholder={apiKeyPlaceholder}
-            />
-          </label>
+              {activeTab === "ai" ? (
+                <div className="settings-stack">
+                  <SettingsSection title="供应商" description="DeepSeek 使用预设地址；自定义模式兼容 OpenAI 风格接口。">
+                    <div className="settings-provider-grid">
+                      <button
+                        className={deepseek ? "primary-button" : "secondary-button"}
+                        onClick={() => {
+                          setActiveProvider("deepseek");
+                          setCustomModels([]);
+                        }}
+                      >
+                        DeepSeek
+                      </button>
+                      <button
+                        className={custom ? "primary-button" : "secondary-button"}
+                        onClick={() => {
+                          setActiveProvider(customProfiles[0]?.provider ?? "custom");
+                          setCustomModels(customProfiles[0]?.available_models ?? []);
+                        }}
+                      >
+                        自定义 OpenAI 兼容 API
+                      </button>
+                    </div>
+                    {custom ? (
+                      <div className="settings-provider-row">
+                        <select
+                          className="h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-moss"
+                          value={activeProvider}
+                          onChange={(event) => {
+                            const provider = event.target.value;
+                            const profile = customProfiles.find((item) => item.provider === provider);
+                            setActiveProvider(provider);
+                            setCustomModels(profile?.available_models ?? []);
+                          }}
+                        >
+                          {customProfiles.map((profile, index) => (
+                            <option key={profile.provider} value={profile.provider}>
+                              {customProfileLabel(profile.provider, index)}
+                            </option>
+                          ))}
+                          {!customProfiles.length ? <option value="custom">自定义 API 1</option> : null}
+                        </select>
+                        <button className="secondary-button justify-center" onClick={addCustomProfile} type="button">
+                          新增
+                        </button>
+                        <button
+                          className="danger-button justify-center"
+                          onClick={deleteCustomProfile}
+                          disabled={activeProvider === "custom"}
+                          type="button"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ) : null}
+                  </SettingsSection>
 
-          <div className="rounded-md border border-line bg-white/70 p-3 text-sm leading-6 text-ink/70">
-            <p>
-              AI 总结只会在你主动生成总结或继续聊天时，将本地日报摘要发送到当前选择的 API。API Key
-              不会以明文返回前端，也不会写入日志。
-            </p>
-            <button className="mt-2 text-sm font-semibold text-moss" onClick={onShowPrivacy}>
-              查看完整隐私说明
-            </button>
-          </div>
+                  <SettingsSection title="连接参数">
+                    <div className="settings-form-grid">
+                      <label className="field">
+                        <span>API URL (Base URL)</span>
+                        <input
+                          value={activeSettings.base_url}
+                          disabled={!custom}
+                          onChange={(event) => updateActiveForm({ base_url: event.target.value })}
+                          placeholder={custom ? "例如 https://api.example.com/v1" : activeSettings.base_url}
+                        />
+                      </label>
 
-          <div className="rounded-md border border-line bg-white/70 p-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-ink">本地数据</p>
-              <p className="mt-1 break-all text-xs leading-5 text-ink/60">
-                {dataDir || "正在读取数据目录..."}
-              </p>
-              <p className="mt-2 text-xs leading-5 text-ink/55">
-                清空本地学习数据会删除会话、窗口采样、应用排行、活跃度、番茄钟事件、日报和聊天记录；AI 设置与隐私确认状态会保留。
-              </p>
+                      <label className="field">
+                        <span>模型名称</span>
+                        {deepseek ? (
+                          <select
+                            value={activeSettings.model}
+                            onChange={(event) => updateActiveForm({ model: event.target.value })}
+                          >
+                            {DEEPSEEK_MODELS.map((model) => (
+                              <option key={model} value={model}>
+                                {model}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="space-y-2">
+                            {customModels.length > 0 ? (
+                              <select
+                                value={customModels.includes(activeSettings.model) ? activeSettings.model : ""}
+                                onChange={(event) => updateActiveForm({ model: event.target.value })}
+                              >
+                                <option value="">手动输入模型名</option>
+                                {customModels.map((model) => (
+                                  <option key={model} value={model}>
+                                    {model}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                            <input
+                              value={activeSettings.model}
+                              onChange={(event) => updateActiveForm({ model: event.target.value })}
+                              placeholder="可先检测模型，也可以手动输入"
+                            />
+                          </div>
+                        )}
+                      </label>
+
+                      <label className="field">
+                        <span>API Key</span>
+                        <input
+                          value={activeSettings.api_key}
+                          onChange={(event) => updateActiveForm({ api_key: event.target.value })}
+                          type="password"
+                          placeholder={apiKeyPlaceholder}
+                        />
+                      </label>
+                    </div>
+                  </SettingsSection>
+
+                  <div className="settings-actions">
+                    {custom ? (
+                      <button className="secondary-button" onClick={detectCustomModels} disabled={detectingModels}>
+                        {detectingModels ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
+                        检测可用模型
+                      </button>
+                    ) : null}
+                    <button className="secondary-button" onClick={testConnection} disabled={testing}>
+                      {testing ? <Loader2 className="animate-spin" size={16} /> : null}
+                      测试 API
+                    </button>
+                    <button className="primary-button" onClick={save}>
+                      保存
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTab === "privacy-data" ? (
+                <div className="settings-stack">
+                  <SettingsSection title="隐私边界">
+                    <div className="settings-note">
+                      AI 总结只会在你主动生成总结或继续聊天时，将本地日报摘要发送到当前选择的 API。API Key 不会以明文返回前端，也不会写入日志。
+                      <button className="ml-2 font-semibold text-moss" onClick={onShowPrivacy}>
+                        查看完整隐私说明
+                      </button>
+                    </div>
+                  </SettingsSection>
+
+                  <SettingsSection title="本地数据">
+                    <div className="space-y-3">
+                      <div className="rounded-md border border-line bg-paper px-3 py-2 text-xs leading-5 text-ink/60">
+                        <div className="mb-1 flex items-center gap-2 font-semibold text-ink">
+                          <Database size={15} />
+                          数据目录
+                        </div>
+                        <p className="break-all">{dataDir || "正在读取数据目录..."}</p>
+                      </div>
+                      <p className="text-xs leading-5 text-ink/55">
+                        清空本地学习数据会删除会话、窗口采样、应用排行、活跃度、番茄钟事件、日报和聊天记录；AI 设置与隐私确认状态会保留。
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="secondary-button" type="button" onClick={openDataDir}>
+                          <FolderOpen size={16} />
+                          打开数据目录
+                        </button>
+                        <button className="danger-button" type="button" onClick={clearLocalData} disabled={clearingData}>
+                          {clearingData ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+                          清空本地数据
+                        </button>
+                      </div>
+                    </div>
+                  </SettingsSection>
+                </div>
+              ) : null}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button className="secondary-button" type="button" onClick={openDataDir}>
-                <FolderOpen size={16} />
-                打开数据目录
-              </button>
-              <button
-                className="danger-button"
-                type="button"
-                onClick={clearLocalData}
-                disabled={clearingData}
-              >
-                {clearingData ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
-                清空本地数据
-              </button>
-            </div>
-          </div>
 
-          {message ? <p className="text-sm text-moss">{message}</p> : null}
-          {testMessage ? (
-            <p className="flex items-center gap-2 text-sm text-ink/75">
-              {testMessage.includes("可用") || testMessage.includes("检测到") || testMessage.includes("available") ? (
-                <CheckCircle2 size={16} />
-              ) : (
-                <XCircle size={16} />
-              )}
-              {testMessage}
-            </p>
-          ) : null}
-
-          <div className="flex flex-wrap justify-end gap-2">
-            <button className="secondary-button" onClick={onClose}>
-              先不设置
-            </button>
-            {custom ? (
-              <button className="secondary-button" onClick={detectCustomModels} disabled={detectingModels}>
-                {detectingModels ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
-                检测可用模型
-              </button>
-            ) : null}
-            <button className="secondary-button" onClick={testConnection} disabled={testing}>
-              {testing ? <Loader2 className="animate-spin" size={16} /> : null}
-              测试 API
-            </button>
-            <button className="primary-button" onClick={save}>
-              保存
-            </button>
-          </div>
+            <SettingsStatus message={message} testMessage={testMessage} />
+          </main>
         </div>
       </section>
+  );
+}
+
+export function SettingsModal({
+  open,
+  onClose,
+  ...props
+}: SettingsModalProps) {
+  if (!open) return null;
+
+  return (
+    <div className="dialog-backdrop">
+      <div className="settings-modal-frame">
+        <button className="icon-button settings-modal-close" onClick={onClose} aria-label="关闭设置">
+          <X size={18} />
+        </button>
+        <SettingsPage active {...props} />
+      </div>
+    </div>
+  );
+}
+
+function SettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="settings-section">
+      <div className="mb-3">
+        <h4 className="settings-section-title">{title}</h4>
+        {description ? <p className="settings-section-desc">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SettingsStatus({ message, testMessage }: { message: string; testMessage: string }) {
+  if (!message && !testMessage) return null;
+  const success =
+    testMessage.includes("可用") || testMessage.includes("检测到") || testMessage.includes("available");
+
+  return (
+    <div className="settings-status-bar">
+      {message ? <p>{message}</p> : null}
+      {testMessage ? (
+        <p className="flex items-center gap-2">
+          {success ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+          {testMessage}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 function formsFromMasked(masked: AiSettingsMasked): AiForms {
   return masked.providers.reduce<AiForms>((forms, provider) => {
-    const defaults = DEFAULT_FORMS[provider.provider];
+    const defaults = provider.provider === "deepseek" ? DEFAULT_FORMS.deepseek : DEFAULT_FORMS.custom;
     forms[provider.provider] = {
       provider: provider.provider,
       base_url: provider.base_url.trim() || defaults.base_url,
@@ -390,6 +587,11 @@ function cloneDefaultForms(): AiForms {
     deepseek: { ...DEFAULT_FORMS.deepseek },
     custom: { ...DEFAULT_FORMS.custom },
   };
+}
+
+function customProfileLabel(provider: string, index: number) {
+  if (provider === "custom") return "自定义 API 1";
+  return `自定义 API ${index + 1}`;
 }
 
 function apiKeyPlaceholderFor(provider: AiProviderSettingsMasked | undefined) {

@@ -4,18 +4,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#1f2933",
-        paper: "#f7f4ee",
-        tomato: "#d94c3d",
+        ink: "#202622",
+        muted: "#68716b",
+        paper: "#f4f6f2",
+        surface: "#fbfcf8",
+        "surface-strong": "#ffffff",
+        tomato: "#c44a3f",
         moss: "#2f6f5e",
-        line: "#ded8ce",
+        fern: "#dce8df",
+        amber: "#b36b2c",
+        line: "#d9ded6",
+        "line-strong": "#c7cec5",
       },
       fontFamily: {
         sans: ["Aptos", "Segoe UI", "system-ui", "sans-serif"],
         mono: ["Cascadia Mono", "Consolas", "monospace"],
       },
       boxShadow: {
-        panel: "0 10px 30px rgba(39, 36, 30, 0.08)",
+        panel: "0 14px 34px rgba(32, 38, 34, 0.08)",
+        inset: "inset 0 1px 0 rgba(255,255,255,0.82)",
       },
     },
   },

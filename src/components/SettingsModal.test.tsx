@@ -14,6 +14,17 @@ const apiMock = vi.hoisted(() => ({
   getDataDir: vi.fn(),
   openDataDir: vi.fn(),
   clearLocalData: vi.fn(),
+  getPetPreferences: vi.fn(),
+  savePetPreferences: vi.fn(),
+  showPetWindow: vi.fn(),
+  hidePetWindow: vi.fn(),
+  dragPetWindow: vi.fn(),
+  applyPetWindowPreferences: vi.fn(),
+  importPetProfile: vi.fn(),
+  getPetProfiles: vi.fn(),
+  getPetLibraryDir: vi.fn(),
+  openPetLibraryDir: vi.fn(),
+  rescanPetProfiles: vi.fn(),
 }));
 
 vi.mock("../lib/api", () => ({
@@ -38,6 +49,14 @@ function renderModal() {
       onDataCleared={vi.fn()}
     />,
   );
+}
+
+async function openAiTab() {
+  fireEvent.click(await screen.findByRole("button", { name: /AI 配置/ }));
+}
+
+async function openDataTab() {
+  fireEvent.click(await screen.findByRole("button", { name: /隐私与数据/ }));
 }
 
 describe("SettingsModal", () => {
@@ -78,17 +97,87 @@ describe("SettingsModal", () => {
       models: ["demo-model-a", "demo-model-b"],
       message: "检测到 2 个可用模型。",
     });
-    apiMock.getDataDir.mockResolvedValue("C:\\Users\\tester\\AppData\\Roaming\\StudyPulse");
+    apiMock.getDataDir.mockResolvedValue("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app");
     apiMock.openDataDir.mockResolvedValue(undefined);
     apiMock.clearLocalData.mockResolvedValue(undefined);
+    apiMock.getPetPreferences.mockResolvedValue({
+      pet_enabled: false,
+      pet_name: "",
+      pet_persona_prompt: "default persona",
+      pet_bubble_enabled: true,
+      proactive_ai_enabled: false,
+      idle_nudge_minutes: 30,
+      app_switch_nudge_enabled: true,
+      active_pet_id: "",
+      first_pet_enable_seen: false,
+      pet_always_on_top: true,
+      pet_scale: 1,
+    });
+    apiMock.savePetPreferences.mockImplementation((preferences) => Promise.resolve(preferences));
+    apiMock.showPetWindow.mockResolvedValue(undefined);
+    apiMock.hidePetWindow.mockResolvedValue(undefined);
+    apiMock.applyPetWindowPreferences.mockResolvedValue(undefined);
+    apiMock.getPetLibraryDir.mockResolvedValue("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app\\pets");
+    apiMock.openPetLibraryDir.mockResolvedValue(undefined);
+    apiMock.importPetProfile.mockResolvedValue({
+      id: "xinhua",
+      display_name: "心华",
+      description: "test pet",
+      spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+      sprites: {},
+      persona: null,
+      sprite_scale: 1,
+      theme_color: null,
+      default_emotion: "idle",
+      bubble_lines: [],
+    });
+    apiMock.getPetProfiles.mockResolvedValue([
+      {
+        id: "xinhua",
+        display_name: "心华",
+        description: "test pet",
+        spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+        sprites: { idle: "C:\\pets\\xinhua\\idle.png" },
+        persona: null,
+        sprite_scale: 1,
+        theme_color: null,
+        default_emotion: "idle",
+        bubble_lines: [],
+      },
+    ]);
+    apiMock.rescanPetProfiles.mockResolvedValue([
+      {
+        id: "xinhua",
+        display_name: "心华",
+        description: "test pet",
+        spritesheet_path: "C:\\pets\\xinhua\\spritesheet.webp",
+        sprites: { idle: "C:\\pets\\xinhua\\idle.png" },
+        persona: null,
+        sprite_scale: 1,
+        theme_color: null,
+        default_emotion: "idle",
+        bubble_lines: [],
+      },
+    ]);
   });
 
   afterEach(() => {
     cleanup();
   });
 
+  it("uses left navigation and defaults to general settings", async () => {
+    renderModal();
+
+    expect(await screen.findByRole("button", { name: /常规/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Aura 桌宠/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /AI 配置/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /隐私与数据/ })).toBeInTheDocument();
+    expect(screen.getByText("键鼠活跃度统计")).toBeInTheDocument();
+  });
+
   it("removes the builtin public API template", async () => {
     renderModal();
+    await openAiTab();
 
     expect(await screen.findByRole("button", { name: "DeepSeek" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "自定义 OpenAI 兼容 API" })).toBeInTheDocument();
@@ -97,6 +186,7 @@ describe("SettingsModal", () => {
 
   it("shows DeepSeek model choices and requires the user key field", async () => {
     renderModal();
+    await openAiTab();
 
     fireEvent.click(await screen.findByRole("button", { name: "DeepSeek" }));
 
@@ -108,6 +198,7 @@ describe("SettingsModal", () => {
 
   it("tests the current form values without saving them", async () => {
     renderModal();
+    await openAiTab();
 
     fireEvent.click(await screen.findByRole("button", { name: "测试 API" }));
 
@@ -118,6 +209,7 @@ describe("SettingsModal", () => {
 
   it("keeps DeepSeek and custom keys separated while switching templates", async () => {
     renderModal();
+    await openAiTab();
 
     fireEvent.click(await screen.findByRole("button", { name: "DeepSeek" }));
     expect(screen.getByPlaceholderText("******1111")).toBeInTheDocument();
@@ -129,6 +221,7 @@ describe("SettingsModal", () => {
 
   it("detects custom models and allows selecting one", async () => {
     renderModal();
+    await openAiTab();
 
     fireEvent.click(await screen.findByRole("button", { name: "自定义 OpenAI 兼容 API" }));
     fireEvent.click(screen.getByRole("button", { name: "检测可用模型" }));
@@ -166,19 +259,33 @@ describe("SettingsModal", () => {
     });
 
     renderModal();
+    await openAiTab();
 
     expect(await screen.findByPlaceholderText("例如 https://api.example.com/v1")).not.toBeDisabled();
     expect(screen.getByPlaceholderText("可先检测模型，也可以手动输入")).not.toBeDisabled();
   });
+
   it("shows local data tools and clears data after double confirmation", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderModal();
+    await openDataTab();
 
     expect(await screen.findByText("本地数据")).toBeInTheDocument();
-    expect(await screen.findByText("C:\\Users\\tester\\AppData\\Roaming\\StudyPulse")).toBeInTheDocument();
+    expect(await screen.findByText("C:\\Users\\tester\\AppData\\Roaming\\com.aura.app")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /清空本地数据/ }));
 
     await waitFor(() => expect(apiMock.clearLocalData).toHaveBeenCalledTimes(1));
+  });
+
+  it("requires an imported pet before enabling pet mode", async () => {
+    apiMock.getPetProfiles.mockResolvedValueOnce([]);
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Aura 桌宠/ }));
+
+    expect(await screen.findByText("尚未导入宠物")).toBeInTheDocument();
+    expect(screen.getByText("请先导入宠物文件夹")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /启用/ })).toBeDisabled();
   });
 });

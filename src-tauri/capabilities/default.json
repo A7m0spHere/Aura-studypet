@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "StudyPulse default window capabilities",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Aura Companion default window capabilities",
+  "windows": ["main", "pet", "pet-menu"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-set-shadow",
+    "core:window:allow-start-dragging"
+  ]
 }
