@@ -86,20 +86,8 @@ button:disabled {
     @apply sticky top-[65px] flex h-[calc(100vh-65px)] min-h-[640px] flex-col border-r border-line bg-surface/80 px-5 py-5;
   }
 
-  .console-logo {
-    @apply flex items-center gap-3 border-b border-line pb-5;
-  }
-
-  .console-logo-title {
-    @apply text-xl font-semibold leading-6 text-ink;
-  }
-
-  .console-logo p {
-    @apply mt-1 text-xs text-ink/50;
-  }
-
   .console-nav {
-    @apply mt-4 grid gap-1;
+    @apply grid gap-1;
   }
 
   .console-nav-item {

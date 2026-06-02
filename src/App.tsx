@@ -374,7 +374,6 @@ export default function App() {
     { id: "apps", label: "应用排行", icon: <BarChart3 size={18} /> },
     { id: "review", label: "复盘", icon: <MessageSquareText size={18} /> },
     { id: "aura", label: "Aura 对话", icon: <MessageSquareText size={18} /> },
-    { id: "pet", label: "桌宠", icon: <Bot size={18} /> },
   ];
 
   return (
@@ -424,16 +423,6 @@ export default function App() {
 
       <div className="console-shell">
         <aside className="console-sidebar">
-          <div className="console-logo">
-            <div className="brand-mark">
-              <AuraMark />
-            </div>
-            <div>
-              <div className="console-logo-title">Aura</div>
-              <p>{todayLabel()}</p>
-            </div>
-          </div>
-
           <nav className="console-nav" aria-label="Aura 工作台导航">
             {workspaceNav.map((item) => (
               <button
@@ -446,17 +435,6 @@ export default function App() {
                 <span>{item.label}</span>
               </button>
             ))}
-            <button
-              className="console-nav-item"
-              onClick={() => {
-                setHistoryOpen(true);
-                loadReports();
-              }}
-              type="button"
-            >
-              <History size={18} />
-              <span>历史日报</span>
-            </button>
             <button
               className="console-nav-item"
               onClick={() => {
@@ -603,24 +581,6 @@ export default function App() {
                 </section>
               </div>
 
-              <section className="console-section console-section-soft">
-                <div className="console-section-head">
-                  <div>
-                    <h3>桌宠陪伴</h3>
-                    <p>{petStatus} · {petPreferences.pet_name || "未选择宠物"}</p>
-                  </div>
-                  <Bot className="text-moss" size={20} />
-                </div>
-                <div className="console-actions">
-                  <button className="secondary-button" disabled={!petPreferences.pet_enabled} onClick={() => api.showPetWindow()}>
-                    <Eye size={16} />
-                    显示桌宠
-                  </button>
-                  <button className="secondary-button" onClick={() => setActiveWorkspaceTab("pet")}>
-                    桌宠详情
-                  </button>
-                </div>
-              </section>
             </section>
           ) : null}
 

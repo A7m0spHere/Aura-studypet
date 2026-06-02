@@ -120,8 +120,9 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Aura" })).toBeInTheDocument();
+    expect(screen.getAllByText("Aura")).toHaveLength(1);
     expect(await screen.findByText("待开始")).toBeInTheDocument();
-    expect(await screen.findByText("桌宠陪伴")).toBeInTheDocument();
+    expect(screen.queryByText("桌宠陪伴")).not.toBeInTheDocument();
     expect(await screen.findByText("今日累计")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "生成 AI 总结" })).toBeDisabled();
     expect(await screen.findByText("开始专注并切换几个窗口后，这里会显示应用使用时长排行。")).toBeInTheDocument();
@@ -130,9 +131,10 @@ describe("App", () => {
   it("does not show pet wake button in header when pet is disabled", async () => {
     render(<App />);
 
-    await screen.findByText("桌宠未启用 · 未选择宠物");
-    expect(screen.queryAllByRole("button", { name: /显示桌宠/ })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /显示桌宠/ })).toBeDisabled();
+    await screen.findByText("今日累计");
+    expect(screen.queryByRole("button", { name: "桌宠" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "历史日报" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /显示桌宠/ })).not.toBeInTheDocument();
   });
 
   it("renders studying state and disables start while enabling stop", async () => {
@@ -212,7 +214,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /历史日报/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /日报/ }));
     fireEvent.click(await screen.findByRole("button", { name: /删除/ }));
 
     await waitFor(() => {
@@ -249,7 +251,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /历史日报/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /日报/ }));
     fireEvent.click(await screen.findByRole("button", { name: /导出 MD/ }));
 
     await waitFor(() => {
